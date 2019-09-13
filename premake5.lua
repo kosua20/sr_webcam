@@ -31,6 +31,7 @@ project("sr_webcam")
 		buildoptions({ "-W3"})
 	filter({})
 
+	includedirs({"include/"})
 	-- common files
 	files({"include/sr_webcam.h", "src/sr_webcam_internal.h", "src/sr_webcam.c"})
 	

@@ -13,9 +13,9 @@ function CommonSetup()
 	filter({})
 
 	-- Common include dirs
-	sysincludedirs({ "include/", "glfw/include/", "gl3w/" })
+	sysincludedirs({ "include/", "common/glfw/include/", "common/gl3w/", "common/" })
 	links({"glfw3", "sr_webcam"})
-	files({"gl3w/gl3w.cpp"})
+	files({"common/gl3w/gl3w.cpp", "common/common.c", "common/common.h"})
 	
 
 	-- Libraries for each platform.
@@ -41,7 +41,7 @@ project("c_app")
 	CommonSetup()
 	files({ "c_app/main.c" })
 	vpaths({
-	   ["*"] = {"gl3w/**.*", "c_app/**.*"}
+	   ["*"] = {"common/gl3w/**.*", "common/common.*", "c_app/**.*"}
 	})
 	
 project("cpp_app")
@@ -50,7 +50,7 @@ project("cpp_app")
 	CommonSetup()
 	files({ "cpp_app/main.cpp" })
 	vpaths({
-	   ["*"] = {"gl3w/**.*", "cpp_app/**.*"}
+	   ["*"] = {"common/gl3w/**.*", "common/common.*", "cpp_app/**.*"}
 	})
 
-include("examples/glfw/premake5.lua")
+include("examples/common/glfw/premake5.lua")
