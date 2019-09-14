@@ -31,16 +31,15 @@ void sr_webcam_set_user(sr_webcam_device * device, void * user){
 }
 
 long sr_webcam_get_format_size(sr_webcam_device * device){
-	// Return the size in bytes, assume RGBA for now.
-	return (long)(device->width) * (long)(device->height) * 4;
+	// Return the size in bytes, assume RGB for now.
+	return (long)(device->width) * (long)(device->height) * 3;
 }
 
+void sr_webcam_get_dimensions(sr_webcam_device * device, int * width, int * height){
+	*width = device->width;
+	*height = device->height;
+}
 
 void * sr_webcam_get_user(sr_webcam_device * device){
 	return device->user;
-}
-
-int cfunc(int a){
-	printf("%d\n", a);
-	return a;
 }

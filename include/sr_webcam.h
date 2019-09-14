@@ -21,6 +21,8 @@ extern "C" {
 	
 	void * sr_webcam_get_user(sr_webcam_device * device);
 	
+	void sr_webcam_get_dimensions(sr_webcam_device * device, int * width, int * height);
+	
 	int sr_webcam_setup(sr_webcam_device * device);
 	
 	void sr_webcam_start(sr_webcam_device * device);
