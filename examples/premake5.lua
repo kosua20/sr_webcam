@@ -13,14 +13,14 @@ function CommonSetup()
 	filter({})
 
 	-- Common include dirs
-	sysincludedirs({ "include/", "common/glfw/include/", "common/gl3w/", "common/" })
+	sysincludedirs({ "../include/", "common/glfw/include/", "common/gl3w/", "common/" })
 	links({"glfw3", "sr_webcam"})
 	files({"common/gl3w/gl3w.cpp", "common/common.c", "common/common.h"})
 	
 
 	-- Libraries for each platform.
 	filter("system:macosx")
-		links({"OpenGL.framework", "Cocoa.framework", "IOKit.framework", "CoreVideo.framework", "AppKit.framework", "AVFoundation.framework", "CoreMedia.framework" })
+		links({"OpenGL.framework", "Cocoa.framework", "IOKit.framework", "CoreVideo.framework", "AppKit.framework", "AVFoundation.framework", "CoreMedia.framework", "Accelerate.framework" })
 
 	filter("system:windows")
 		links({"opengl32", "comctl32", "Strmiids", "Quartz"})
