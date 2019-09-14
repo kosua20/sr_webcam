@@ -23,7 +23,7 @@ workspace("sr_webcam")
 project("sr_webcam")
 	kind("StaticLib")
 	systemversion("latest")
-	language("C")
+	
 
 	filter("toolset:not msc*")
 		buildoptions({ "-Wall", "-Wextra" })
@@ -37,12 +37,15 @@ project("sr_webcam")
 	
 	-- system build filters
 	filter("system:windows")
-		files({"src/sr_webcam_win.c"})
+		language("C++")
+		files({"src/sr_webcam_win.cpp"})
 
 	filter("system:macosx")
+		language("C")
 		files({"src/sr_webcam_mac.m"})
 
 	filter({"system:linux"})
+		language("C")
 		files({"src/sr_webcam_lin.c"})
 
 	-- visual studio filters
