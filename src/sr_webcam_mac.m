@@ -52,7 +52,7 @@
 	if([devices count] == 0) {
 		return NO;
 	}
-	_id = MAX(_id, [devices count]-1);
+	_id = MAX(_id, (int)([devices count])-1);
 	_captureDevice = [devices objectAtIndex:_id];
 	
 	// Setup the device.
@@ -120,17 +120,17 @@
 	
 	// We receive data on a secondary thread.
 	dispatch_queue_t queue;
-	queue = dispatch_queue_create("VideoStream", DISPATCH_QUEUE_SERIAL);
+	queue = dispatch_queue_create("VideoStream", NULL);
 	dispatch_set_target_queue( queue, dispatch_get_global_queue( DISPATCH_QUEUE_PRIORITY_HIGH, 0 ) );
 	[_captureDataOut setSampleBufferDelegate:self queue:queue];
 	// Not sure, OF does this but not the Apple sample.
-	//dispatch_release(queue);
+	dispatch_release(queue);
 	
 	// Create video settings for the output, corresponding to the current format.
 	NSDictionary * settings = [NSDictionary dictionaryWithObjectsAndKeys:
 							   [NSNumber numberWithUnsignedInt: kCVPixelFormatType_32BGRA], kCVPixelBufferPixelFormatTypeKey,
-							   [NSNumber numberWithDouble: _width], kCVPixelBufferWidthKey,
-							   [NSNumber numberWithDouble: _height], kCVPixelBufferHeightKey,
+							   [NSNumber numberWithInt: _width], kCVPixelBufferWidthKey,
+							   [NSNumber numberWithInt: _height], kCVPixelBufferHeightKey,
 							   nil];
 	[_captureDataOut setVideoSettings:settings];
 	
@@ -147,17 +147,15 @@
 		[connection setVideoMaxFrameDuration:CMTimeMake(1, framerate)];
 	}
 	[_captureSession commitConfiguration];
-	//[_captureSession startRunning];
-	
 	return YES;
 }
 
 -(void)start {
 	[_captureSession startRunning];
-	[_captureDataIn.device lockForConfiguration:nil];
-	// Enable autofocus.
-	if([_captureDataIn.device isFocusModeSupported:AVCaptureFocusModeAutoFocus]){
-	//	[_captureDataIn.device setFocusMode:AVCaptureFocusModeAutoFocus];
+	[_captureDataIn.device lockForConfiguration: nil];
+	
+	if([_captureDataIn.device isFocusModeSupported: AVCaptureFocusModeAutoFocus]){
+		[_captureDataIn.device setFocusMode: AVCaptureFocusModeAutoFocus];
 	}
 }
 
@@ -184,18 +182,40 @@
 /// Implement the delegate.
 
 - (void)captureOutput:(AVCaptureOutput *)captureOutput didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer  fromConnection:(AVCaptureConnection *)connection {
+	#pragma unused (captureOutput)
+	#pragma unused (connection)
 	if(!_parent){
 		return;
 	}
 	@autoreleasepool {
 		CVImageBufferRef imgBuffer = CMSampleBufferGetImageBuffer(sampleBuffer);
 		CVPixelBufferLockBaseAddress(imgBuffer,0);
-		unsigned char *baseBuffer = (unsigned char *)CVPixelBufferGetBaseAddress(imgBuffer);
-		size_t wBuffer  = CVPixelBufferGetWidth(imgBuffer);
-		size_t hBuffer = CVPixelBufferGetHeight(imgBuffer);
+		
+		const int wBuffer = (int)CVPixelBufferGetWidth(imgBuffer);
+		const int hBuffer = (int)CVPixelBufferGetHeight(imgBuffer);
 		if(wBuffer == _parent->width && hBuffer == _parent->height){
-			// Pass the data.
-			_parent->callback(_parent, baseBuffer);
+			unsigned char *baseBuffer = (unsigned char *)CVPixelBufferGetBaseAddress(imgBuffer);
+			// Convert to RGB.
+			vImage_Buffer srcImg;
+			srcImg.width = wBuffer;
+			srcImg.height = hBuffer;
+			srcImg.data = baseBuffer;
+			srcImg.rowBytes = CVPixelBufferGetBytesPerRow(imgBuffer);
+			
+			unsigned char *dstBuffer = (unsigned char *)malloc(wBuffer*hBuffer*3);
+			vImage_Buffer dstImg;
+			dstImg.width = wBuffer;
+			dstImg.height = hBuffer;
+			dstImg.rowBytes = wBuffer*3;
+			dstImg.data = dstBuffer;
+			
+			vImage_Error err = vImageConvert_BGRA8888toRGB888(&srcImg, &dstImg, kvImageNoFlags);
+			if(err == kvImageNoError){
+				// Pass the data.
+				_parent->callback(_parent, dstBuffer);
+			}
+			free(dstBuffer);
+			
 		}
 		CVPixelBufferUnlockBaseAddress(imgBuffer, kCVPixelBufferLock_ReadOnly);
 	}
