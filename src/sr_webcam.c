@@ -5,7 +5,7 @@
 #include "sr_webcam_internal.h"
 
 
-int sr_webcam_open_device(sr_webcam_device ** device, int deviceId){
+int sr_webcam_create(sr_webcam_device ** device, int deviceId){
 	sr_webcam_device *pdev = (sr_webcam_device*)malloc(sizeof(sr_webcam_device));
 	if(!pdev){
 		return -1;

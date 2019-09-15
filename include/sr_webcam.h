@@ -9,7 +9,7 @@ extern "C" {
 	
 	typedef void (*sr_webcam_callback)(sr_webcam_device * device, void * data);
 	
-	int sr_webcam_open_device(sr_webcam_device ** device, int deviceId);
+	int sr_webcam_create(sr_webcam_device ** device, int deviceId);
 	
 	void sr_webcam_set_format(sr_webcam_device * device, int width, int height, int framerate);
 	
@@ -23,7 +23,7 @@ extern "C" {
 	
 	void sr_webcam_get_dimensions(sr_webcam_device * device, int * width, int * height);
 	
-	int sr_webcam_setup(sr_webcam_device * device);
+	int sr_webcam_open(sr_webcam_device * device);
 	
 	void sr_webcam_start(sr_webcam_device * device);
 	

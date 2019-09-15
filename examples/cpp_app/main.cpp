@@ -11,17 +11,13 @@ class VideoStream {
 public:
 	
 	VideoStream(int w, int h, int fps){
-		const int res = sr_webcam_open_device(&device, 0);
-		if(res < 0){
-			std::cout << "Unable to open device." << std::endl;
-			return;
-		}
+		sr_webcam_create(&device, 0);
 		sr_webcam_set_format(device, w, h, fps);
 		sr_webcam_set_callback(device, &VideoStream::callback);
 		sr_webcam_set_user(device, this);
-		const int res1 = sr_webcam_setup(device);
-		if(res1 < 0){
-			std::cout << "Unable to setup device." << std::endl;
+		const int res1 = sr_webcam_open(device);
+		if(res1 != 0){
+			std::cout << "Unable to open device." << std::endl;
 			return;
 		}
 		buffer.resize(sr_webcam_get_format_size(device));
@@ -76,7 +72,7 @@ int main(int, char**){
 	// Video parameters.
 	const int w = 320;
 	const int h = 240;
-	const int fps = 60;
+	const int fps = 30;
 
 	GLFWwindow * window = createWindow(2 * w, 2 * h);
 	int winW, winH;
