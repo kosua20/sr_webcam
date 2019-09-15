@@ -20,9 +20,10 @@
 	@public int _width;
 	@public int _height;
 	@public int _id;
+	@public int _framerate;
 }
 
--(BOOL)setupWithRate:(int)framerate width:(int)w height:(int)h;
+-(BOOL)setupWithID:(int) deviceID rate:(int)framerate width:(int)w height:(int)h;
 -(void)start;
 -(void)stop;
 
@@ -42,17 +43,18 @@
 		_width = 0;
 		_height = 0;
 		_id = 0;
+		_framerate = 0;
 	}
 	return self;
 }
 
--(BOOL)setupWithRate:(int)framerate width:(int)w height:(int)h {
+-(BOOL)setupWithID:(int) deviceID rate:(int)framerate width:(int)w height:(int)h {
 	// List available devices
 	NSArray * devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-	if([devices count] == 0) {
+	if([devices count] == 0 || deviceID < 0) {
 		return NO;
 	}
-	_id = MAX(_id, (int)([devices count])-1);
+	_id = MIN(deviceID, (int)([devices count])-1);
 	_captureDevice = [devices objectAtIndex:_id];
 	
 	// Setup the device.
@@ -108,8 +110,10 @@
 		if(found){
 			_captureDevice.activeVideoMinFrameDuration = bestRange.minFrameDuration;
 			_captureDevice.activeVideoMaxFrameDuration = bestRange.maxFrameDuration;
+			
 		}
 	}
+	
 	// Configuration done.
 	[_captureDevice unlockForConfiguration];
 	
@@ -146,6 +150,12 @@
 	if([connection isVideoMaxFrameDurationSupported] == YES){
 		[connection setVideoMaxFrameDuration:CMTimeMake(1, framerate)];
 	}
+	
+	// Update framerate.
+	int framerateConnection = (int)((float)(connection.videoMinFrameDuration.timescale) / (float)(connection.videoMinFrameDuration.value));
+	int framerateDevice = (int)((float)(_captureDevice.activeVideoMinFrameDuration.timescale) / (float)(_captureDevice.activeVideoMinFrameDuration.value));
+	_framerate = MIN(framerateDevice, framerateConnection);
+	
 	[_captureSession commitConfiguration];
 	return YES;
 }
@@ -246,17 +256,19 @@
 @end
 
 
-int sr_webcam_setup(sr_webcam_device * device){
+int sr_webcam_open(sr_webcam_device * device){
 	VideoStreamAVFoundation * stream = [VideoStreamAVFoundation alloc];
-	device->stream = stream;
 	stream->_parent = device;
-	BOOL res = [stream setupWithRate:device->framerate width:device->width height:device->height];
+	BOOL res = [stream setupWithID: device->deviceId rate:device->framerate width:device->width height:device->height];
 	if(res == NO){
 		return -1;
 	}
+	device->stream = stream;
 	device->width = stream->_width;
 	device->height = stream->_height;
 	device->deviceId = stream->_id;
+	device->framerate = stream->_framerate;
+	//printf("Device set: %dx%d, %d, %d fps\n", device->width, device->height, device->deviceId, device->framerate);
 	return 0;
 }
 
