@@ -22,7 +22,9 @@ extern "C" {
 	void * sr_webcam_get_user(sr_webcam_device * device);
 	
 	void sr_webcam_get_dimensions(sr_webcam_device * device, int * width, int * height);
-	
+
+	void sr_webcam_get_framerate(sr_webcam_device * device, int * fps);
+
 	int sr_webcam_open(sr_webcam_device * device);
 	
 	void sr_webcam_start(sr_webcam_device * device);

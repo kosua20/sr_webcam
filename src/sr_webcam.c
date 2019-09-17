@@ -40,6 +40,10 @@ void sr_webcam_get_dimensions(sr_webcam_device * device, int * width, int * heig
 	*height = device->height;
 }
 
+void sr_webcam_get_framerate(sr_webcam_device * device, int * fps) {
+	*fps = device->framerate;
+}
+
 void * sr_webcam_get_user(sr_webcam_device * device){
 	return device->user;
 }
