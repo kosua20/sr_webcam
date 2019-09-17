@@ -22,7 +22,7 @@
 #include <string.h>
 #include <mferror.h>
 #include <comdef.h>
-#include <shlwapi.h>  // QISearch
+#include <shlwapi.h>
 
 struct IMFMediaType;
 struct IMFActivate;
@@ -175,14 +175,15 @@ class VideoStreamMediaFoundation : public IMFSourceReaderCallback {
 public:
 	
 	VideoStreamMediaFoundation() : context(MFContext::getContext()) {
-		
+		//, syncEvent(CreateEvent(NULL, FALSE, FALSE, NULL))
 	}
 	
 	virtual ~VideoStreamMediaFoundation(){
 		
 	}
 
-	STDMETHODIMP QueryInterface(  REFIID riid,  _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override {
+	STDMETHODIMP QueryInterface(REFIID riid, _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override {
+		// Based on OpenCV.
 #ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4838)
@@ -208,7 +209,76 @@ public:
 
 	STDMETHODIMP OnReadSample(HRESULT hrStatus, DWORD dwStreamIndex, DWORD dwStreamFlags, LONGLONG llTimestamp, IMFSample *pSample) override {
 		printf("Bup\n");
-		sourceReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
+		if(!_parent){
+			return S_OK;
+		}
+		
+		if(!SUCCEEDED(hrStatus) || (MF_SOURCE_READERF_ENDOFSTREAM & dwStreamFlags) || !pSample){
+			// Should close the stream or something.
+			return S_OK;
+		}
+		
+		
+		
+		HRESULT res = sourceReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
+		if(FAILED(res)){
+			// scheduling failed, reached end of file, ...
+			return S_OK;
+		}
+		
+		// SetEvent(syncEvent);
+		
+		_ComPtr<IMFMediaBuffer> buffer = NULL;
+		if(!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))) {
+			// Try to get direct access to the buffer.
+			DWORD bcnt = 0;
+			if(!SUCCEEDED(videoSample->GetBufferCount(&bcnt)) || bcnt == 0){
+				return S_OK;
+			}
+			if(!SUCCEEDED(videoSample->GetBufferByIndex(0, &buffer))){
+				return S_OK;
+			}
+		}
+		
+		// As in OpenCV, we use a lock2D if possible.
+		bool is2DLocked = false;
+		BYTE* ptr = NULL;
+		LONG pitch = 0;
+		_ComPtr<IMF2DBuffer> buffer2d;
+		if(SUCCEEDED(buffer.As<IMF2DBuffer>(buffer2d))){
+			if(SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))){
+				is2DLocked = true;
+			}
+		}
+		DWORD maxsize = 0, cursize = 0;
+		// Maybe the 2D lock failed, try a regular one.
+		if(!ptr){
+			if(!SUCCEEDED(buffer->Lock(&ptr, &maxsize, &cursize)) || !ptr){
+				return S_OK;
+			}
+		}
+		
+		if(!is2DLocked && ((unsigned int)cursize == captureFormat.sampleSize)){
+			buffer->Unlock();
+			return S_OK;
+		}
+		// Assume BGR for now.
+		unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width*captureFormat.height*3);
+		// Copy each row, taking the pitch into account. Maybe we should check the number of channels also?
+		const int exactRowSize = captureFormat.width*3;
+		if(pitch == 0){
+			pitch = exactRowSize;
+		}
+		for(int y = 0; y < height; ++y){
+			memcpy(&ptr[y*pitch], &dstBuffer[y*exactRowSize], exactRowSize);
+		}
+		_parent->callback(_parent, dstBuffer);
+		
+		if(is2DLocked){
+			buffer2d->Unlock2D();
+		} else {
+			buffer->Unlock();
+		}
 		return S_OK;	
 	}
 
@@ -394,17 +464,17 @@ public:
 	}
 	
 	void start(){
-		// Initiate capturing with async callback
-		sourceReader = videoFileSource.Get();
-		if (FAILED(videoFileSource->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
-			printf("Failed.\n");
-			sourceReader = NULL;
+		if(!sourceReader){
+			sourceReader = videoFileSource.Get();
+			if (FAILED(videoFileSource->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
+				//printf("Failed.\n");
+				sourceReader = NULL;
+			}
 		}
 	}
 	
 	void stop(){
 		videoFileSource.Release();
-		
 	}
 
 public:
@@ -422,6 +492,7 @@ private:
 	long refCount = 0;
 	IMFSourceReader * sourceReader;
 	_ComPtr<IMFSample> lastSample;
+	//HANDLE syncEvent;
 };
 
 int sr_webcam_open(sr_webcam_device * device) {
