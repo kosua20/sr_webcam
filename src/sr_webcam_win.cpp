@@ -171,17 +171,55 @@ struct Format {
 	}
 };
 
-class VideoStreamMediaFoundation {
+class VideoStreamMediaFoundation : public IMFSourceReaderCallback {
 public:
 	
 	VideoStreamMediaFoundation() : context(MFContext::getContext()) {
 		
 	}
 	
-	~VideoStreamMediaFoundation(){
+	virtual ~VideoStreamMediaFoundation(){
 		
 	}
-	
+
+	STDMETHODIMP QueryInterface(  REFIID riid,  _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override {
+#ifdef _MSC_VER
+#pragma warning(push)
+#pragma warning(disable:4838)
+#endif
+		static const QITAB qit[] = {
+			QITABENT(VideoStreamMediaFoundation, IMFSourceReaderCallback), { 0 }, };
+#ifdef _MSC_VER
+#pragma warning(pop)
+#endif
+		return QISearch(this, qit, riid, ppvObject);
+	};
+
+	STDMETHODIMP_(ULONG) AddRef() override {
+		return InterlockedIncrement(&refCount);
+	}
+	STDMETHODIMP_(ULONG) Release() override {
+		ULONG uCount = InterlockedDecrement(&refCount);
+		if (uCount == 0) {
+			delete this;
+		}
+		return uCount;
+	}
+
+	STDMETHODIMP OnReadSample(HRESULT hrStatus, DWORD dwStreamIndex, DWORD dwStreamFlags, LONGLONG llTimestamp, IMFSample *pSample) override {
+		printf("Bup\n");
+		sourceReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
+		return S_OK;	
+	}
+
+	STDMETHODIMP OnEvent(DWORD, IMFMediaEvent *) override {
+		return S_OK;
+	}
+
+	STDMETHODIMP OnFlush(DWORD) override {
+		return S_OK;
+	}
+
 	bool setupWith(int id, int framerate, int w, int h){
 		ComPtr<IMFAttributes> msAttr = NULL;
 		if(!(SUCCEEDED(MFCreateAttributes(&msAttr, 1)) &&
@@ -232,17 +270,14 @@ public:
 		srAttr->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
 		
 		// Define callback.
-		readCallback = ComPtr<IMFSourceReaderCallback>(nullptr);//new ReaderCallback());
-		HRESULT res = srAttr->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, (IMFSourceReaderCallback*)readCallback.Get());
+		HRESULT res = srAttr->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, (IMFSourceReaderCallback*)this);
 		if(FAILED(res)){
-			readCallback.Release();
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
 		
 		if(!SUCCEEDED(MFCreateSourceReaderFromMediaSource(mSrc.Get(), srAttr.Get(), &videoFileSource))){
-			readCallback.Release();
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
@@ -312,7 +347,6 @@ public:
 		}
 		
 		if(bestStream < 0){
-			readCallback.Release();
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
@@ -326,7 +360,6 @@ public:
 		
 		_ComPtr<IMFMediaType> typeOut;
 		if(!SUCCEEDED(MFCreateMediaType(&typeOut))){
-			readCallback.Release();
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
@@ -346,7 +379,6 @@ public:
 		   !SUCCEEDED(videoFileSource->SetStreamSelection ((DWORD)bestStream, true)) ||
 		   !SUCCEEDED(videoFileSource->SetCurrentMediaType((DWORD)bestStream, NULL, typeOut.Get()))){
 			videoFileSource.Release();
-			readCallback.Release();
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
@@ -362,9 +394,16 @@ public:
 	}
 	
 	void start(){
+		// Initiate capturing with async callback
+		sourceReader = videoFileSource.Get();
+		if (FAILED(videoFileSource->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
+			printf("Failed.\n");
+			sourceReader = NULL;
+		}
 	}
 	
 	void stop(){
+		videoFileSource.Release();
 		
 	}
 
@@ -376,10 +415,13 @@ public:
 	
 private:
 	MFContext & context;
-	_ComPtr<IMFSourceReaderCallback> readCallback;
+	//_ComPtr<IMFSourceReaderCallback> readCallback;
 	_ComPtr<IMFSourceReader> videoFileSource;
 	DWORD selectedStream;
 	Format nativeFormat;
+	long refCount = 0;
+	IMFSourceReader * sourceReader;
+	_ComPtr<IMFSample> lastSample;
 };
 
 int sr_webcam_open(sr_webcam_device * device) {
@@ -400,19 +442,15 @@ int sr_webcam_open(sr_webcam_device * device) {
 
 void sr_webcam_start(sr_webcam_device * device) {
 	if (device->stream) {
+		VideoStreamMediaFoundation * stream = (VideoStreamMediaFoundation*)(device->stream);
+		stream->start();
 	}
 }
 
 void sr_webcam_stop(sr_webcam_device * device) {
 	if (device->stream) {
-		/*if (is(Open))
-		 {
-		 isOpen = false;
-		 videoSample.Release();
-		 videoFileSource.Release();
-		 camid = -1;
-		 }
-		 readCallback.Release();*/
+		VideoStreamMediaFoundation * stream = (VideoStreamMediaFoundation*)(device->stream);
+		//stream->stop();
 	}
 }
 

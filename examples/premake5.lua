@@ -23,7 +23,7 @@ function CommonSetup()
 		links({"OpenGL.framework", "Cocoa.framework", "IOKit.framework", "CoreVideo.framework", "AppKit.framework", "AVFoundation.framework", "CoreMedia.framework", "Accelerate.framework" })
 
 	filter("system:windows")
-		links({"opengl32", "comctl32", "mfplat", "mf", "mfuuid", "Mfreadwrite"})
+		links({"opengl32", "comctl32", "mfplat", "mf", "mfuuid", "Mfreadwrite", "Shlwapi"})
 
 	filter("system:linux")
 		links({"GL", "X11", "Xi", "Xrandr", "Xxf86vm", "Xinerama", "Xcursor", "Xext", "Xrender", "Xfixes", "xcb", "Xau", "Xdmcp", "rt", "m", "pthread", "dl"})
