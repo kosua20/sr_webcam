@@ -20,15 +20,6 @@
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
-#ifdef _MSC_VER
-#pragma warning(disable:4503)
-#pragma comment(lib, "mfplat")
-#pragma comment(lib, "mf")
-#pragma comment(lib, "mfuuid")
-#pragma comment(lib, "Strmiids")
-#pragma comment(lib, "Mfreadwrite")
-#pragma comment(lib, "Shlwapi.lib")
-#endif
 #include <mferror.h>
 #include <comdef.h>
 #include <shlwapi.h>  // QISearch
@@ -125,7 +116,7 @@ struct Format {
 	unsigned int interlaceMode = 0;
 	GUID type;
 	GUID subType;
-	double frameRate = 0.0;
+	double framerate = 0.0;
 	LONGLONG frameStep = 0;
 	
 	Format(){
@@ -143,7 +134,7 @@ struct Format {
 				PROPVARIANT var;
 				PropVariantInit(&var);
 				GUID guid = { 0 };
-				if(!SUCCEEDED(pAttr->GetItemByIndex(i, &guid, &var))){
+				if(!SUCCEEDED(pType->GetItemByIndex(i, &guid, &var))){
 					continue;
 				}
 				// Extract the properties we need.
@@ -153,9 +144,9 @@ struct Format {
 					Unpack2UINT32AsUINT64(var.uhVal.QuadPart, &frameRateNum, &frameRateDenom);
 					// Compute framerate.
 					if(frameRateDenom != 0){
-						frameRate = ((double)frameRateNum) / ((double)frameRateDenom);
+						framerate = ((double)frameRateNum) / ((double)frameRateDenom);
 					}
-					frameStep = (LONGLONG)(frameRate > 0 ? (1e7 / frameRate) : 0);
+					frameStep = (LONGLONG)(framerate > 0 ? (1e7 / framerate) : 0);
 				} else if(guid == MF_MT_DEFAULT_STRIDE && var.vt == VT_UI4){
 					stride = (int)var.ulVal;
 				} else if(guid == MF_MT_FIXED_SIZE_SAMPLES && var.vt == VT_UI4){
@@ -241,7 +232,7 @@ public:
 		srAttr->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
 		
 		// Define callback.
-		readCallback = ComPtr<IMFSourceReaderCallback>(new SourceReaderCB());
+		readCallback = ComPtr<IMFSourceReaderCallback>(nullptr);//new ReaderCallback());
 		HRESULT res = srAttr->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, (IMFSourceReaderCallback*)readCallback.Get());
 		if(FAILED(res)){
 			readCallback.Release();
@@ -289,7 +280,7 @@ public:
 				continue;
 			}
 			// Init with the first existing format.
-			if(dwStreamBest < 0){
+			if(bestStream < 0){
 				const float dw = (float)(w - format.width);
 				const float dh = (float)(h - format.height);
 				bestFit = sqrtf(dw*dw+dh*dh);
@@ -298,12 +289,12 @@ public:
 				++typeId;
 				continue;
 			}
-			
 			// If the current best already has the same size, replace it if the framerate is closer to the requested one.
 			if(format.width == bestFormat.width && format.height == bestFormat.height){
-				if(abs(fps - format.framerate) < abs(fps - bestFormat.framerate)){
+				if(abs(framerate - format.framerate) < abs(framerate - bestFormat.framerate)){
 					bestStream = (int)streamId;
 					bestFormat = format;
+					
 				}
 				++typeId;
 				continue;
@@ -327,10 +318,11 @@ public:
 			return false;
 		}
 		
+
 		// We found the best available stream and format, configure.
 		GUID outSubtype = MFVideoFormat_RGB24; // Note from OpenCV: HW only supports MFVideoFormat_RGB32.
-		UINT32 outStride = 3 * MTBest.width;
-		UINT32 outSize = outStride * MTBest.height;
+		UINT32 outStride = 3 * bestFormat.width;
+		UINT32 outSize = outStride * bestFormat.height;
 		
 		_ComPtr<IMFMediaType> typeOut;
 		if(!SUCCEEDED(MFCreateMediaType(&typeOut))){
@@ -344,6 +336,8 @@ public:
 		typeOut->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 		MFSetAttributeRatio(typeOut.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
 		MFSetAttributeSize(typeOut.Get(), MF_MT_FRAME_SIZE, bestFormat.width, bestFormat.height);
+		// Should we specify the output framerate or is this controlled by the native input format?
+		MFSetAttributeRatio(typeOut.Get(), MF_MT_FRAME_RATE, bestFormat.frameRateNum, bestFormat.frameRateDenom);
 		typeOut->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, 1);
 		typeOut->SetUINT32(MF_MT_SAMPLE_SIZE, outSize);
 		typeOut->SetUINT32(MF_MT_DEFAULT_STRIDE, outStride);
@@ -360,8 +354,7 @@ public:
 		
 		selectedStream = (DWORD)bestStream;
 		nativeFormat = bestFormat;
-		captureFormat = MediaType(typeOut.Get());
-		
+		captureFormat = Format(typeOut.Get());
 		ppDevices[_id]->Release();
 		CoTaskMemFree(ppDevices);
 		
@@ -387,7 +380,7 @@ private:
 	_ComPtr<IMFSourceReader> videoFileSource;
 	DWORD selectedStream;
 	Format nativeFormat;
-}
+};
 
 int sr_webcam_open(sr_webcam_device * device) {
 	VideoStreamMediaFoundation * stream = new VideoStreamMediaFoundation();
@@ -399,7 +392,7 @@ int sr_webcam_open(sr_webcam_device * device) {
 	device->stream = stream;
 	device->width = stream->captureFormat.width;
 	device->height = stream->captureFormat.height;
-	device->framerate = stream->captureFormat.frameRate;
+	device->framerate = (int)(stream->captureFormat.framerate);
 	device->deviceId = stream->_id;
 	return 0;
 }
