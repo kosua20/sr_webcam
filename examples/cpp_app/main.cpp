@@ -3,7 +3,7 @@
 
 #include <iostream>
 #include <vector>
-
+#include <mutex>
 
 
 
@@ -22,6 +22,7 @@ public:
 		}
 		buffer.resize(sr_webcam_get_format_size(device));
 		sr_webcam_get_dimensions(device, &_w, &_h);
+		sr_webcam_get_framerate(device, &_fps);
 	}
 	
 	void start(){
@@ -58,13 +59,15 @@ public:
 	int w() const { return _w; }
 	
 	int h() const { return _h; }
+
+	int fps() const { return _fps; }
 	
 private:
 	sr_webcam_device * device;
 	std::vector<uint8_t> buffer;
 	std::mutex mutex;
 	bool newFrame = false;
-	int _w, _h;
+	int _w = 0, _h = 0, _fps = 0;
 };
 
 int main(int, char**){
@@ -86,7 +89,8 @@ int main(int, char**){
 	
 	// Setup texture.
 	const GLuint texId = setupTexture(vidW, vidH);
-	
+
+	std::cout << "Webcam created with size " << vidW << "x" << vidH << "@" << webcam.fps() << "fps." << std::endl;
 	webcam.start();
 	while (!glfwWindowShouldClose(window)) {
 

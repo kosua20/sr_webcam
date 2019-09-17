@@ -2,13 +2,17 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sr_webcam.h>
 
-int main(int, char**){
+int main(int argc, char** argv){
 
 	// Video parameters.
 	const int vidW = 320; 
 	const int vidH = 240;
 	const int fps = 30;
+
+	sr_webcam_device * device;
+	sr_webcam_create(&device, 0);
 
 	GLFWwindow * window = createWindow(2*vidW, 2*vidH);
 	int winW, winH;
