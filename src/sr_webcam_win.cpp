@@ -175,7 +175,7 @@ class VideoStreamMediaFoundation : public IMFSourceReaderCallback {
 public:
 	
 	VideoStreamMediaFoundation() : context(MFContext::getContext()) {
-		//, syncEvent(CreateEvent(NULL, FALSE, FALSE, NULL))
+		
 	}
 	
 	virtual ~VideoStreamMediaFoundation(){
@@ -208,76 +208,79 @@ public:
 	}
 
 	STDMETHODIMP OnReadSample(HRESULT hrStatus, DWORD dwStreamIndex, DWORD dwStreamFlags, LONGLONG llTimestamp, IMFSample *pSample) override {
-		printf("Bup\n");
+		
 		if(!_parent){
 			return S_OK;
 		}
 		
-		if(!SUCCEEDED(hrStatus) || (MF_SOURCE_READERF_ENDOFSTREAM & dwStreamFlags) || !pSample){
-			// Should close the stream or something.
+		if (!SUCCEEDED(hrStatus)) {
 			return S_OK;
 		}
 		
 		
-		
+
+		if (pSample != NULL) {
+			printf(".");
+			_ComPtr<IMFMediaBuffer> buffer = NULL;
+			if (!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))) {
+				// Try to get direct access to the buffer.
+				DWORD bcnt = 0;
+				if (!SUCCEEDED(pSample->GetBufferCount(&bcnt)) || bcnt == 0) {
+					return S_OK;
+				}
+				if (!SUCCEEDED(pSample->GetBufferByIndex(0, &buffer))) {
+					return S_OK;
+				}
+			}
+
+			// As in OpenCV, we use a lock2D if possible.
+			bool is2DLocked = false;
+			BYTE* ptr = NULL;
+			LONG pitch = 0;
+			_ComPtr<IMF2DBuffer> buffer2d;
+			if (SUCCEEDED(buffer.As<IMF2DBuffer>(buffer2d))) {
+				if (SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))) {
+					is2DLocked = true;
+				}
+			}
+			DWORD maxsize = 0, cursize = 0;
+			// Maybe the 2D lock failed, try a regular one.
+			if (!ptr) {
+				if (!SUCCEEDED(buffer->Lock(&ptr, &maxsize, &cursize))) {
+					return S_OK;
+				}
+			}
+			if (!ptr) {
+				return S_OK;
+			}
+			if (!is2DLocked && ((unsigned int)cursize != captureFormat.sampleSize)) {
+				buffer->Unlock();
+				return S_OK;
+			}
+			// Assume BGR for now.
+			unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width*captureFormat.height * 3);
+			// Copy each row, taking the pitch into account. Maybe we should check the number of channels also?
+			const unsigned int exactRowSize = captureFormat.width * 3;
+			if (pitch == 0) {
+				pitch = exactRowSize;
+			}
+			for(unsigned int y = 0; y < captureFormat.height; ++y){
+				memcpy(&dstBuffer[y*exactRowSize], &ptr[y*pitch], exactRowSize);
+			}
+			_parent->callback(_parent, dstBuffer);
+
+			if (is2DLocked) {
+				buffer2d->Unlock2D();
+			}
+			else {
+				buffer->Unlock();
+			}
+		}
+
 		HRESULT res = sourceReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
 		if(FAILED(res)){
 			// scheduling failed, reached end of file, ...
 			return S_OK;
-		}
-		
-		// SetEvent(syncEvent);
-		
-		_ComPtr<IMFMediaBuffer> buffer = NULL;
-		if(!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))) {
-			// Try to get direct access to the buffer.
-			DWORD bcnt = 0;
-			if(!SUCCEEDED(videoSample->GetBufferCount(&bcnt)) || bcnt == 0){
-				return S_OK;
-			}
-			if(!SUCCEEDED(videoSample->GetBufferByIndex(0, &buffer))){
-				return S_OK;
-			}
-		}
-		
-		// As in OpenCV, we use a lock2D if possible.
-		bool is2DLocked = false;
-		BYTE* ptr = NULL;
-		LONG pitch = 0;
-		_ComPtr<IMF2DBuffer> buffer2d;
-		if(SUCCEEDED(buffer.As<IMF2DBuffer>(buffer2d))){
-			if(SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))){
-				is2DLocked = true;
-			}
-		}
-		DWORD maxsize = 0, cursize = 0;
-		// Maybe the 2D lock failed, try a regular one.
-		if(!ptr){
-			if(!SUCCEEDED(buffer->Lock(&ptr, &maxsize, &cursize)) || !ptr){
-				return S_OK;
-			}
-		}
-		
-		if(!is2DLocked && ((unsigned int)cursize == captureFormat.sampleSize)){
-			buffer->Unlock();
-			return S_OK;
-		}
-		// Assume BGR for now.
-		unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width*captureFormat.height*3);
-		// Copy each row, taking the pitch into account. Maybe we should check the number of channels also?
-		const int exactRowSize = captureFormat.width*3;
-		if(pitch == 0){
-			pitch = exactRowSize;
-		}
-		for(int y = 0; y < height; ++y){
-			memcpy(&ptr[y*pitch], &dstBuffer[y*exactRowSize], exactRowSize);
-		}
-		_parent->callback(_parent, dstBuffer);
-		
-		if(is2DLocked){
-			buffer2d->Unlock2D();
-		} else {
-			buffer->Unlock();
 		}
 		return S_OK;	
 	}
@@ -422,7 +425,6 @@ public:
 			return false;
 		}
 		
-
 		// We found the best available stream and format, configure.
 		GUID outSubtype = MFVideoFormat_RGB24; // Note from OpenCV: HW only supports MFVideoFormat_RGB32.
 		UINT32 outStride = 3 * bestFormat.width;
@@ -440,7 +442,7 @@ public:
 		MFSetAttributeRatio(typeOut.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
 		MFSetAttributeSize(typeOut.Get(), MF_MT_FRAME_SIZE, bestFormat.width, bestFormat.height);
 		// Should we specify the output framerate or is this controlled by the native input format?
-		MFSetAttributeRatio(typeOut.Get(), MF_MT_FRAME_RATE, bestFormat.frameRateNum, bestFormat.frameRateDenom);
+		MFSetAttributeRatio(typeOut.Get(), MF_MT_FRAME_RATE, min(framerate, bestFormat.framerate),1);
 		typeOut->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, 1);
 		typeOut->SetUINT32(MF_MT_SAMPLE_SIZE, outSize);
 		typeOut->SetUINT32(MF_MT_DEFAULT_STRIDE, outStride);
@@ -455,7 +457,6 @@ public:
 		}
 		
 		selectedStream = (DWORD)bestStream;
-		nativeFormat = bestFormat;
 		captureFormat = Format(typeOut.Get());
 		ppDevices[_id]->Release();
 		CoTaskMemFree(ppDevices);
@@ -467,7 +468,7 @@ public:
 		if(!sourceReader){
 			sourceReader = videoFileSource.Get();
 			if (FAILED(videoFileSource->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
-				//printf("Failed.\n");
+				printf("Failed.\n");
 				sourceReader = NULL;
 			}
 		}
@@ -485,14 +486,11 @@ public:
 	
 private:
 	MFContext & context;
-	//_ComPtr<IMFSourceReaderCallback> readCallback;
 	_ComPtr<IMFSourceReader> videoFileSource;
 	DWORD selectedStream;
-	Format nativeFormat;
 	long refCount = 0;
 	IMFSourceReader * sourceReader;
-	_ComPtr<IMFSample> lastSample;
-	//HANDLE syncEvent;
+
 };
 
 int sr_webcam_open(sr_webcam_device * device) {
