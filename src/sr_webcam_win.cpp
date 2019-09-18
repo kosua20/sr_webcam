@@ -30,56 +30,6 @@ struct IMFMediaSource;
 struct IMFAttributes;
 
 namespace {
-	// Ptr
-	template <class T>
-	class ComPtr {
-	public:
-		ComPtr(){}
-		
-		ComPtr(T* lp){
-			p = lp;
-		}
-		
-		ComPtr(_In_ const ComPtr<T>& lp){
-			p = lp.p;
-		}
-		
-		virtual ~ComPtr(){}
-		
-		T** operator&(){
-			return p.operator&();
-		}
-		
-		T* operator->() const {
-			return p.operator->();
-		}
-		
-		operator bool(){
-			return p.operator!=(NULL);
-		}
-		
-		T* Get() const {
-			return p;
-		}
-		
-		void Release(){
-			if (p){
-				p.Release();
-			}
-		}
-		
-		template<typename U>
-		HRESULT As(_Out_ ComPtr<U>& lp) const{
-			lp.Release();
-			return p->QueryInterface(__uuidof(U), reinterpret_cast<void**>((T**)&lp));
-		}
-		
-	private:
-		_COM_SMARTPTR_TYPEDEF(T, __uuidof(T));
-		TPtr p;
-	};
-	
-	#define _ComPtr ComPtr
 	
 	// Context
 	class MFContext {
@@ -99,8 +49,6 @@ namespace {
 			SUCCEEDED(MFStartup(MF_VERSION));
 		}
 	};
-
-
 }
 
 struct Format {
@@ -213,22 +161,20 @@ public:
 			return S_OK;
 		}
 		
-		if (!SUCCEEDED(hrStatus)) {
+		if(!SUCCEEDED(hrStatus)){
 			return S_OK;
 		}
 		
-		
-
-		if (pSample != NULL) {
-			printf(".");
-			_ComPtr<IMFMediaBuffer> buffer = NULL;
-			if (!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))) {
+		if(pSample != NULL){
+			
+			IMFMediaBuffer * buffer = NULL;
+			if(!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))){
 				// Try to get direct access to the buffer.
 				DWORD bcnt = 0;
-				if (!SUCCEEDED(pSample->GetBufferCount(&bcnt)) || bcnt == 0) {
+				if(!SUCCEEDED(pSample->GetBufferCount(&bcnt)) || bcnt == 0){
 					return S_OK;
 				}
-				if (!SUCCEEDED(pSample->GetBufferByIndex(0, &buffer))) {
+				if(!SUCCEEDED(pSample->GetBufferByIndex(0, &buffer))){
 					return S_OK;
 				}
 			}
@@ -237,23 +183,28 @@ public:
 			bool is2DLocked = false;
 			BYTE* ptr = NULL;
 			LONG pitch = 0;
-			_ComPtr<IMF2DBuffer> buffer2d;
-			if (SUCCEEDED(buffer.As<IMF2DBuffer>(buffer2d))) {
-				if (SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))) {
+			DWORD maxsize = 0, cursize = 0;
+			IMF2DBuffer * buffer2d = null;
+			
+			// Try to convert the buffer.
+			HRESULT res1 = buffer->QueryInterface(__uuidof(IMF2DBuffer), reinterpret_cast<void**>((IMFMediaBuffer**)&buffer2d));
+			
+			if(res1){
+				if(SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))){
 					is2DLocked = true;
 				}
 			}
-			DWORD maxsize = 0, cursize = 0;
+			
 			// Maybe the 2D lock failed, try a regular one.
-			if (!ptr) {
-				if (!SUCCEEDED(buffer->Lock(&ptr, &maxsize, &cursize))) {
+			if(!is2DLocked){
+				if(!SUCCEEDED(buffer->Lock(&ptr, &maxsize, &cursize))){
 					return S_OK;
 				}
 			}
-			if (!ptr) {
+			if(!ptr){
 				return S_OK;
 			}
-			if (!is2DLocked && ((unsigned int)cursize != captureFormat.sampleSize)) {
+			if(!is2DLocked && ((unsigned int)cursize != captureFormat.sampleSize)){
 				buffer->Unlock();
 				return S_OK;
 			}
@@ -261,23 +212,26 @@ public:
 			unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width*captureFormat.height * 3);
 			// Copy each row, taking the pitch into account. Maybe we should check the number of channels also?
 			const unsigned int exactRowSize = captureFormat.width * 3;
-			if (pitch == 0) {
+			if(pitch == 0){
 				pitch = exactRowSize;
 			}
 			for(unsigned int y = 0; y < captureFormat.height; ++y){
-				memcpy(&dstBuffer[y*exactRowSize], &ptr[y*pitch], exactRowSize);
+				for(unsigned int x = 0; x < captureFormat.width; ++x){
+					dstBuffer[y*exactRowSize+3*x+0] = ptr[y*pitch+3*x+2];
+					dstBuffer[y*exactRowSize+3*x+1] = ptr[y*pitch+3*x+1];
+					dstBuffer[y*exactRowSize+3*x+2] = ptr[y*pitch+3*x+0];
+				}
 			}
 			_parent->callback(_parent, dstBuffer);
 
-			if (is2DLocked) {
+			if(is2DLocked){
 				buffer2d->Unlock2D();
-			}
-			else {
+			} else {
 				buffer->Unlock();
 			}
 		}
 
-		HRESULT res = sourceReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
+		HRESULT res = videoReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
 		if(FAILED(res)){
 			// scheduling failed, reached end of file, ...
 			return S_OK;
@@ -322,8 +276,8 @@ public:
 		}
 		
 		// Set source reader parameters
-		_ComPtr<IMFMediaSource> mSrc;
-		_ComPtr<IMFAttributes> srAttr;
+		IMFMediaSource * mSrc = NULL;
+		IMFAttributes * srAttr = NULL;
 		
 		if(!SUCCEEDED(ppDevices[_id]->ActivateObject( __uuidof(IMFMediaSource), (void**)&mSrc )) || !mSrc){
 			ppDevices[_id]->Release();
@@ -350,7 +304,7 @@ public:
 			return false;
 		}
 		
-		if(!SUCCEEDED(MFCreateSourceReaderFromMediaSource(mSrc.Get(), srAttr.Get(), &videoFileSource))){
+		if(!SUCCEEDED(MFCreateSourceReaderFromMediaSource(mSrc, srAttr, &videoReader))){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
@@ -368,8 +322,8 @@ public:
 		
 		// Iterate over streams and media types.
 		while(SUCCEEDED(hr)) {
-			_ComPtr<IMFMediaType> pType;
-			hr = videoFileSource->GetNativeMediaType(streamId, typeId, &pType);
+			IMFMediaType * pType = NULL;
+			hr = videoReader->GetNativeMediaType(streamId, typeId, &pType);
 			// If we reach the end of format types for this stream, move to the next.
 			if(hr == MF_E_NO_MORE_TYPES) {
 				hr = S_OK;
@@ -381,7 +335,7 @@ public:
 			if(!SUCCEEDED(hr)) {
 				continue;
 			}
-			Format format(pType.Get());
+			Format format(pType);
 			// We only care about video types.
 			if(format.type != MFMediaType_Video) {
 				++typeId;
@@ -430,7 +384,7 @@ public:
 		UINT32 outStride = 3 * bestFormat.width;
 		UINT32 outSize = outStride * bestFormat.height;
 		
-		_ComPtr<IMFMediaType> typeOut;
+		IMFMediaType * typeOut = NULL;
 		if(!SUCCEEDED(MFCreateMediaType(&typeOut))){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
@@ -439,25 +393,26 @@ public:
 		typeOut->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
 		typeOut->SetGUID(MF_MT_SUBTYPE, outSubtype);
 		typeOut->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
-		MFSetAttributeRatio(typeOut.Get(), MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
-		MFSetAttributeSize(typeOut.Get(), MF_MT_FRAME_SIZE, bestFormat.width, bestFormat.height);
+		MFSetAttributeRatio(typeOut, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
+		MFSetAttributeSize(typeOut, MF_MT_FRAME_SIZE, bestFormat.width, bestFormat.height);
 		// Should we specify the output framerate or is this controlled by the native input format?
-		MFSetAttributeRatio(typeOut.Get(), MF_MT_FRAME_RATE, min(framerate, bestFormat.framerate),1);
+		MFSetAttributeRatio(typeOut, MF_MT_FRAME_RATE, min(framerate, bestFormat.framerate),1);
 		typeOut->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, 1);
 		typeOut->SetUINT32(MF_MT_SAMPLE_SIZE, outSize);
 		typeOut->SetUINT32(MF_MT_DEFAULT_STRIDE, outStride);
 		
-		if(!SUCCEEDED(videoFileSource->SetStreamSelection ((DWORD)MF_SOURCE_READER_ALL_STREAMS, false)) ||
-		   !SUCCEEDED(videoFileSource->SetStreamSelection ((DWORD)bestStream, true)) ||
-		   !SUCCEEDED(videoFileSource->SetCurrentMediaType((DWORD)bestStream, NULL, typeOut.Get()))){
-			videoFileSource.Release();
+		if(!SUCCEEDED(videoReader->SetStreamSelection ((DWORD)MF_SOURCE_READER_ALL_STREAMS, false)) ||
+		   !SUCCEEDED(videoReader->SetStreamSelection ((DWORD)bestStream, true)) ||
+		   !SUCCEEDED(videoReader->SetCurrentMediaType((DWORD)bestStream, NULL, typeOut))){
+			delete videoReader;
+			videoReader = NULL;
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
 		
 		selectedStream = (DWORD)bestStream;
-		captureFormat = Format(typeOut.Get());
+		captureFormat = Format(typeOut);
 		ppDevices[_id]->Release();
 		CoTaskMemFree(ppDevices);
 		
@@ -465,17 +420,16 @@ public:
 	}
 	
 	void start(){
-		if(!sourceReader){
-			sourceReader = videoFileSource.Get();
-			if (FAILED(videoFileSource->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
-				printf("Failed.\n");
-				sourceReader = NULL;
-			}
+		if (FAILED(videoReader->ReadSample(videoReader, 0, NULL, NULL, NULL, NULL))){
+			printf("Failed.\n");
+			delete videoReader;
+			videoReader = NULL;
 		}
 	}
 	
 	void stop(){
-		videoFileSource.Release();
+		delete videoReader;
+		videoReader = NULL;
 	}
 
 public:
@@ -486,10 +440,9 @@ public:
 	
 private:
 	MFContext & context;
-	_ComPtr<IMFSourceReader> videoFileSource;
+	IMFSourceReader * videoReader;
 	DWORD selectedStream;
 	long refCount = 0;
-	IMFSourceReader * sourceReader;
 
 };
 
