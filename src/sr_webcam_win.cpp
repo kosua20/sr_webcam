@@ -123,11 +123,9 @@ class VideoStreamMediaFoundation : public IMFSourceReaderCallback {
 public:
 	
 	VideoStreamMediaFoundation() : context(MFContext::getContext()) {
-		
 	}
 	
-	virtual ~VideoStreamMediaFoundation(){
-		
+	virtual ~VideoStreamMediaFoundation(){	
 	}
 
 	STDMETHODIMP QueryInterface(REFIID riid, _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override {
@@ -184,7 +182,7 @@ public:
 			BYTE* ptr = NULL;
 			LONG pitch = 0;
 			DWORD maxsize = 0, cursize = 0;
-			IMF2DBuffer * buffer2d = null;
+			IMF2DBuffer * buffer2d = NULL;
 			
 			// Try to convert the buffer.
 			HRESULT res1 = buffer->QueryInterface(__uuidof(IMF2DBuffer), reinterpret_cast<void**>((IMFMediaBuffer**)&buffer2d));
@@ -248,7 +246,7 @@ public:
 	}
 
 	bool setupWith(int id, int framerate, int w, int h){
-		ComPtr<IMFAttributes> msAttr = NULL;
+		IMFAttributes * msAttr = NULL;
 		if(!(SUCCEEDED(MFCreateAttributes(&msAttr, 1)) &&
 			 SUCCEEDED(msAttr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID )))){
 			return false;
@@ -257,7 +255,7 @@ public:
 		UINT32 count = 0;
 		bool opened = false;
 		// Enumerate devices.
-		if(!SUCCEEDED(MFEnumDeviceSources(msAttr.Get(), &ppDevices, &count)) || count == 0 || id < 0){
+		if(!SUCCEEDED(MFEnumDeviceSources(msAttr, &ppDevices, &count)) || count == 0 || id < 0){
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
@@ -380,7 +378,7 @@ public:
 		}
 		
 		// We found the best available stream and format, configure.
-		GUID outSubtype = MFVideoFormat_RGB24; // Note from OpenCV: HW only supports MFVideoFormat_RGB32.
+		GUID outSubtype = MFVideoFormat_RGB24;
 		UINT32 outStride = 3 * bestFormat.width;
 		UINT32 outSize = outStride * bestFormat.height;
 		
@@ -396,7 +394,7 @@ public:
 		MFSetAttributeRatio(typeOut, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
 		MFSetAttributeSize(typeOut, MF_MT_FRAME_SIZE, bestFormat.width, bestFormat.height);
 		// Should we specify the output framerate or is this controlled by the native input format?
-		MFSetAttributeRatio(typeOut, MF_MT_FRAME_RATE, min(framerate, bestFormat.framerate),1);
+		MFSetAttributeRatio(typeOut, MF_MT_FRAME_RATE, min(framerate, (int)bestFormat.framerate),1);
 		typeOut->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, 1);
 		typeOut->SetUINT32(MF_MT_SAMPLE_SIZE, outSize);
 		typeOut->SetUINT32(MF_MT_DEFAULT_STRIDE, outStride);
@@ -420,7 +418,7 @@ public:
 	}
 	
 	void start(){
-		if (FAILED(videoReader->ReadSample(videoReader, 0, NULL, NULL, NULL, NULL))){
+		if (FAILED(videoReader->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
 			printf("Failed.\n");
 			delete videoReader;
 			videoReader = NULL;
