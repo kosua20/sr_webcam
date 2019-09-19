@@ -31,6 +31,8 @@ extern "C" {
 	
 	void sr_webcam_stop(sr_webcam_device * device);
 	
+	void sr_webcam_delete(sr_webcam_device * device);
+	
 #ifdef __cplusplus
 }
 #endif

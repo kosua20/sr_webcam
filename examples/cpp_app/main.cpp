@@ -25,6 +25,10 @@ public:
 		sr_webcam_get_framerate(device, &_fps);
 	}
 	
+	~VideoStream(){
+		sr_webcam_delete(device);
+	}
+	
 	void start(){
 		sr_webcam_start(device);
 	}

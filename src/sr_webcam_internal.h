@@ -11,6 +11,7 @@ extern "C" {
 		int width;
 		int height;
 		int framerate;
+		int running;
 		
 		void * stream;
 		sr_webcam_callback callback;
