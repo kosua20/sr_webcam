@@ -1,6 +1,5 @@
 #include "sr_webcam_internal.h"
 
-
 #ifdef __cplusplus
 
 #include <windows.h>
@@ -53,32 +52,18 @@ namespace {
 
 struct Format {
 	
-	unsigned int frameSize = 0;
-	UINT32 height = 0;
-	UINT32 width = 0;
-	int stride = 0; // stride is negative if image is bottom-up
-	unsigned int fixedSizeSamples = 0;
-	UINT32 frameRateNum = 0;
-	UINT32 frameRateDenom = 0;
-	unsigned int sampleSize = 0;
-	unsigned int interlaceMode = 0;
-	GUID type;
-	GUID subType;
-	double framerate = 0.0;
-	LONGLONG frameStep = 0;
-	
 	Format(){
 		memset(&type, 0, sizeof(GUID));
-		memset(&subType, 0, sizeof(GUID));
 	}
 	
 	Format(IMFMediaType *pType){
 		memset(&type, 0, sizeof(GUID));
-		memset(&subType, 0, sizeof(GUID));
 		
+		// Extract the properties we need.
 		UINT32 count = 0;
 		if(SUCCEEDED(pType->GetCount(&count)) && SUCCEEDED(pType->LockStore())) {
 			for (UINT32 i = 0; i < count; i++){
+				// Value of the property.
 				PROPVARIANT var;
 				PropVariantInit(&var);
 				GUID guid = { 0 };
@@ -86,65 +71,54 @@ struct Format {
 					continue;
 				}
 				// Extract the properties we need.
-				if(guid == MF_MT_DEFAULT_STRIDE && var.vt == VT_INT){
-					stride = var.intVal;
-				} else if(guid == MF_MT_FRAME_RATE && var.vt == VT_UI8){
+				if(guid == MF_MT_FRAME_RATE && var.vt == VT_UI8){
+					UINT32 frameRateNum = 0, frameRateDenom = 0;
 					Unpack2UINT32AsUINT64(var.uhVal.QuadPart, &frameRateNum, &frameRateDenom);
 					// Compute framerate.
 					if(frameRateDenom != 0){
 						framerate = ((double)frameRateNum) / ((double)frameRateDenom);
 					}
-					frameStep = (LONGLONG)(framerate > 0 ? (1e7 / framerate) : 0);
-				} else if(guid == MF_MT_DEFAULT_STRIDE && var.vt == VT_UI4){
-					stride = (int)var.ulVal;
-				} else if(guid == MF_MT_FIXED_SIZE_SAMPLES && var.vt == VT_UI4){
-					fixedSizeSamples = var.ulVal;
 				} else if(guid == MF_MT_SAMPLE_SIZE && var.vt == VT_UI4){
 					sampleSize = var.ulVal;
-				} else if(guid == MF_MT_INTERLACE_MODE && var.vt == VT_UI4){
-					interlaceMode = var.ulVal;
 				} else if(guid == MF_MT_MAJOR_TYPE && var.vt == VT_CLSID){
 					type = *var.puuid;
-				} else if(guid == MF_MT_SUBTYPE && var.vt == VT_CLSID){
-					subType = *var.puuid;
 				} else if(guid == MF_MT_FRAME_SIZE && var.vt == VT_UI8) {
 					Unpack2UINT32AsUINT64(var.uhVal.QuadPart, &width, &height);
-					// Compute frame size.
-					frameSize = width * height;
 				}
 				PropVariantClear(&var);
 			}
 			pType->UnlockStore();
 		}
 	}
+	
+	UINT32 width = 0;
+	UINT32 height = 0;
+	unsigned int sampleSize = 0;
+	double framerate = 0.0;
+	GUID type;
+	
 };
 
 class VideoStreamMediaFoundation : public IMFSourceReaderCallback {
 public:
 	
-	VideoStreamMediaFoundation() : context(MFContext::getContext()) {
-	}
+	VideoStreamMediaFoundation() : context(MFContext::getContext()){}
 	
-	virtual ~VideoStreamMediaFoundation(){	
-	}
+	virtual ~VideoStreamMediaFoundation(){}
 
 	STDMETHODIMP QueryInterface(REFIID riid, _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override {
-		// Based on OpenCV.
-#ifdef _MSC_VER
-#pragma warning(push)
-#pragma warning(disable:4838)
-#endif
+		#pragma warning(push)
+		#pragma warning(disable:4838)
 		static const QITAB qit[] = {
 			QITABENT(VideoStreamMediaFoundation, IMFSourceReaderCallback), { 0 }, };
-#ifdef _MSC_VER
-#pragma warning(pop)
-#endif
+		#pragma warning(pop)
 		return QISearch(this, qit, riid, ppvObject);
 	};
 
 	STDMETHODIMP_(ULONG) AddRef() override {
 		return InterlockedIncrement(&refCount);
 	}
+	
 	STDMETHODIMP_(ULONG) Release() override {
 		ULONG uCount = InterlockedDecrement(&refCount);
 		if (uCount == 0) {
@@ -152,20 +126,29 @@ public:
 		}
 		return uCount;
 	}
-
+	
+	STDMETHODIMP OnEvent(DWORD, IMFMediaEvent *) override {
+		return S_OK;
+	}
+	
+	STDMETHODIMP OnFlush(DWORD) override {
+		return S_OK;
+	}
+	
 	STDMETHODIMP OnReadSample(HRESULT hrStatus, DWORD dwStreamIndex, DWORD dwStreamFlags, LONGLONG llTimestamp, IMFSample *pSample) override {
-		
-		if(!_parent){
+		if(!_parent || !SUCCEEDED(hrStatus)){
 			return S_OK;
 		}
-		
-		if(!SUCCEEDED(hrStatus)){
-			return S_OK;
-		}
-		
+		// Extract data and pass it.
 		if(pSample != NULL){
-			
 			IMFMediaBuffer * buffer = NULL;
+			bool is2DLocked = false;
+			BYTE* ptr = NULL;
+			LONG pitch = 0;
+			DWORD maxSize = 0, curSize = 0;
+			IMF2DBuffer * buffer2d = NULL;
+			
+			// Generate data buffer from sample.
 			if(!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))){
 				// Try to get direct access to the buffer.
 				DWORD bcnt = 0;
@@ -176,79 +159,67 @@ public:
 					return S_OK;
 				}
 			}
-
-			// As in OpenCV, we use a lock2D if possible.
-			bool is2DLocked = false;
-			BYTE* ptr = NULL;
-			LONG pitch = 0;
-			DWORD maxsize = 0, cursize = 0;
-			IMF2DBuffer * buffer2d = NULL;
-			
-			// Try to convert the buffer.
+			// Try to convert the buffer as-is. As in OpenCV, we use a lock2D if possible.
 			HRESULT res1 = buffer->QueryInterface(__uuidof(IMF2DBuffer), reinterpret_cast<void**>((IMFMediaBuffer**)&buffer2d));
-			
-			if(res1){
-				if(SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))){
-					is2DLocked = true;
-				}
+			// Try to lock the buffer.
+			if(res1 && SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))){
+				is2DLocked = true;
 			}
-			
-			// Maybe the 2D lock failed, try a regular one.
+			if(pitch == 0){
+				pitch = captureFormat.width * 3;
+			}
+			// If the 2D lock failed, try a regular one.
 			if(!is2DLocked){
-				if(!SUCCEEDED(buffer->Lock(&ptr, &maxsize, &cursize))){
+				if(!SUCCEEDED(buffer->Lock(&ptr, &maxSize, &curSize))){
 					return S_OK;
 				}
 			}
+			// Maybe it still failed, skip.
 			if(!ptr){
 				return S_OK;
 			}
-			if(!is2DLocked && ((unsigned int)cursize != captureFormat.sampleSize)){
+			// If the size of the buffer is not correct, skip.
+			if(!is2DLocked && ((unsigned int)curSize != captureFormat.sampleSize)){
 				buffer->Unlock();
 				return S_OK;
 			}
-			// Assume BGR for now.
-			unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width*captureFormat.height * 3);
-			// Copy each row, taking the pitch into account. Maybe we should check the number of channels also?
-			const unsigned int exactRowSize = captureFormat.width * 3;
-			if(pitch == 0){
-				pitch = exactRowSize;
-			}
+			// Convert from BGR (with stride) to compact RGB.
+			unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width * captureFormat.height * 3);
+			// Copy each pixel and switch components, taking the pitch into account.
 			for(unsigned int y = 0; y < captureFormat.height; ++y){
 				for(unsigned int x = 0; x < captureFormat.width; ++x){
-					dstBuffer[y*exactRowSize+3*x+0] = ptr[y*pitch+3*x+2];
-					dstBuffer[y*exactRowSize+3*x+1] = ptr[y*pitch+3*x+1];
-					dstBuffer[y*exactRowSize+3*x+2] = ptr[y*pitch+3*x+0];
+					dstBuffer[y * exactRowSize + 3 * x + 0] = ptr[y * pitch + 3 * x + 2];
+					dstBuffer[y * exactRowSize + 3 * x + 1] = ptr[y * pitch + 3 * x + 1];
+					dstBuffer[y * exactRowSize + 3 * x + 2] = ptr[y * pitch + 3 * x + 0];
 				}
 			}
+			// Transmit data to user.
 			_parent->callback(_parent, dstBuffer);
-
+			// Release and clean.
 			if(is2DLocked){
 				buffer2d->Unlock2D();
 			} else {
 				buffer->Unlock();
 			}
+			free(dstBuffer);
 		}
-
+		
+		// Schedule next sample.
 		HRESULT res = videoReader->ReadSample(dwStreamIndex, 0, NULL, NULL, NULL, NULL);
 		if(FAILED(res)){
-			// scheduling failed, reached end of file, ...
+			// Scheduling failed, reached end of file, ...
 			return S_OK;
 		}
-		return S_OK;	
-	}
-
-	STDMETHODIMP OnEvent(DWORD, IMFMediaEvent *) override {
 		return S_OK;
 	}
-
-	STDMETHODIMP OnFlush(DWORD) override {
-		return S_OK;
-	}
-
+	
 	bool setupWith(int id, int framerate, int w, int h){
+		// Prepate video devices query.
 		IMFAttributes * msAttr = NULL;
-		if(!(SUCCEEDED(MFCreateAttributes(&msAttr, 1)) &&
-			 SUCCEEDED(msAttr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID )))){
+		if(!SUCCEEDED(MFCreateAttributes(&msAttr, 1))){
+			return false;
+		}
+		if(!SUCCEEDED(msAttr->SetGUID(MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE, MF_DEVSOURCE_ATTRIBUTE_SOURCE_TYPE_VIDCAP_GUID))){
 			return false;
 		}
 		IMFActivate **ppDevices = NULL;
@@ -276,24 +247,21 @@ public:
 		// Set source reader parameters
 		IMFMediaSource * mSrc = NULL;
 		IMFAttributes * srAttr = NULL;
-		
 		if(!SUCCEEDED(ppDevices[_id]->ActivateObject( __uuidof(IMFMediaSource), (void**)&mSrc )) || !mSrc){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
-		
-		if(!SUCCEEDED(MFCreateAttributes(&srAttr, 10))){
+		// Create attributes.
+		if(!SUCCEEDED(MFCreateAttributes(&srAttr, 6))){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
-		
 		srAttr->SetUINT32(MF_READWRITE_ENABLE_HARDWARE_TRANSFORMS, TRUE);
 		srAttr->SetUINT32(MF_SOURCE_READER_DISABLE_DXVA, FALSE);
 		srAttr->SetUINT32(MF_SOURCE_READER_ENABLE_VIDEO_PROCESSING, FALSE);
 		srAttr->SetUINT32(MF_SOURCE_READER_ENABLE_ADVANCED_VIDEO_PROCESSING, TRUE);
-		
 		// Define callback.
 		HRESULT res = srAttr->SetUnknown(MF_SOURCE_READER_ASYNC_CALLBACK, (IMFSourceReaderCallback*)this);
 		if(FAILED(res)){
@@ -301,28 +269,25 @@ public:
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
-		
+		// Create the reader from the attributes and device.
 		if(!SUCCEEDED(MFCreateSourceReaderFromMediaSource(mSrc, srAttr, &videoReader))){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
 		
-		// Look at the valid formats.
+		// Iterate over streams and media types to find the best fit.
 		HRESULT hr = S_OK;
-		
 		int bestStream = -1;
 		Format bestFormat;
 		float bestFit = 1e9;
-		
 		DWORD streamId = 0;
 		DWORD typeId = 0;
 		
-		// Iterate over streams and media types.
 		while(SUCCEEDED(hr)) {
 			IMFMediaType * pType = NULL;
 			hr = videoReader->GetNativeMediaType(streamId, typeId, &pType);
-			// If we reach the end of format types for this stream, move to the next.
+			// If we reached the end of format types for this stream, move to the next.
 			if(hr == MF_E_NO_MORE_TYPES) {
 				hr = S_OK;
 				++streamId;
@@ -339,7 +304,7 @@ public:
 				++typeId;
 				continue;
 			}
-			// Init with the first existing format.
+			// Init with the first available video format.
 			if(bestStream < 0){
 				const float dw = (float)(w - format.width);
 				const float dh = (float)(h - format.height);
@@ -349,12 +314,11 @@ public:
 				++typeId;
 				continue;
 			}
-			// If the current best already has the same size, replace it if the framerate is closer to the requested one.
+			// If the current best already has the same size, replace it only if the framerate is closer to the requested one.
 			if(format.width == bestFormat.width && format.height == bestFormat.height){
 				if(abs(framerate - format.framerate) < abs(framerate - bestFormat.framerate)){
 					bestStream = (int)streamId;
 					bestFormat = format;
-					
 				}
 				++typeId;
 				continue;
@@ -370,68 +334,62 @@ public:
 			}
 			++typeId;
 		}
-		
+		// If we didn't find anything, fail.
 		if(bestStream < 0){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
-		
-		// We found the best available stream and format, configure.
-		GUID outSubtype = MFVideoFormat_RGB24;
-		UINT32 outStride = 3 * bestFormat.width;
-		UINT32 outSize = outStride * bestFormat.height;
-		
+		// We found the best available stream and format, configure the output format.
 		IMFMediaType * typeOut = NULL;
 		if(!SUCCEEDED(MFCreateMediaType(&typeOut))){
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
+		// We require RGB24, interlaced, at the best possible size and framerate.
 		typeOut->SetGUID(MF_MT_MAJOR_TYPE, MFMediaType_Video);
-		typeOut->SetGUID(MF_MT_SUBTYPE, outSubtype);
+		typeOut->SetGUID(MF_MT_SUBTYPE, MFVideoFormat_RGB24);
 		typeOut->SetUINT32(MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive);
 		MFSetAttributeRatio(typeOut, MF_MT_PIXEL_ASPECT_RATIO, 1, 1);
 		MFSetAttributeSize(typeOut, MF_MT_FRAME_SIZE, bestFormat.width, bestFormat.height);
-		// Should we specify the output framerate or is this controlled by the native input format?
 		MFSetAttributeRatio(typeOut, MF_MT_FRAME_RATE, min(framerate, (int)bestFormat.framerate),1);
 		typeOut->SetUINT32(MF_MT_FIXED_SIZE_SAMPLES, 1);
-		typeOut->SetUINT32(MF_MT_SAMPLE_SIZE, outSize);
-		typeOut->SetUINT32(MF_MT_DEFAULT_STRIDE, outStride);
+		typeOut->SetUINT32(MF_MT_SAMPLE_SIZE, 3 * bestFormat.width * bestFormat.height);
+		typeOut->SetUINT32(MF_MT_DEFAULT_STRIDE, 3 * bestFormat.width);
 		
+		// Set the selected stream and the output format.
 		if(!SUCCEEDED(videoReader->SetStreamSelection ((DWORD)MF_SOURCE_READER_ALL_STREAMS, false)) ||
 		   !SUCCEEDED(videoReader->SetStreamSelection ((DWORD)bestStream, true)) ||
 		   !SUCCEEDED(videoReader->SetCurrentMediaType((DWORD)bestStream, NULL, typeOut))){
-			delete videoReader;
+			videoReader->Release();
 			videoReader = NULL;
 			ppDevices[_id]->Release();
 			CoTaskMemFree(ppDevices);
 			return false;
 		}
-		
+		// Store infos for callback.
 		selectedStream = (DWORD)bestStream;
 		captureFormat = Format(typeOut);
 		ppDevices[_id]->Release();
 		CoTaskMemFree(ppDevices);
-		
 		return true;
 	}
 	
 	void start(){
-		if (FAILED(videoReader->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
-			printf("Failed.\n");
-			delete videoReader;
+		// Schedule first sample.
+		if(FAILED(videoReader->ReadSample(selectedStream, 0, NULL, NULL, NULL, NULL))){
+			videoReader->Release();
 			videoReader = NULL;
 		}
 	}
 	
 	void stop(){
-		delete videoReader;
+		videoReader->Release();
 		videoReader = NULL;
 	}
 
 public:
-	
 	sr_webcam_device * _parent = NULL;
 	int _id = -1;
 	Format captureFormat;
@@ -441,14 +399,18 @@ private:
 	IMFSourceReader * videoReader;
 	DWORD selectedStream;
 	long refCount = 0;
-
 };
 
 int sr_webcam_open(sr_webcam_device * device) {
+	// Already setup.
+	if(device->stream){
+		return -1;
+	}
 	VideoStreamMediaFoundation * stream = new VideoStreamMediaFoundation();
 	stream->_parent = device;
 	bool res = stream->setupWith(device->deviceId, device->framerate, device->width, device->height);
 	if(!res){
+		device->stream = NULL;
 		return -1;
 	}
 	device->stream = stream;
@@ -459,18 +421,19 @@ int sr_webcam_open(sr_webcam_device * device) {
 	return 0;
 }
 
-
 void sr_webcam_start(sr_webcam_device * device) {
-	if (device->stream) {
+	if(device->stream && device->running == 0){
 		VideoStreamMediaFoundation * stream = (VideoStreamMediaFoundation*)(device->stream);
 		stream->start();
+		device->running = 1;
 	}
 }
 
 void sr_webcam_stop(sr_webcam_device * device) {
-	if (device->stream) {
+	if(device->stream && device->running == 1){
 		VideoStreamMediaFoundation * stream = (VideoStreamMediaFoundation*)(device->stream);
-		//stream->stop();
+		stream->stop();
+		device->running = 0;
 	}
 }
 
