@@ -257,6 +257,10 @@
 
 
 int sr_webcam_open(sr_webcam_device * device){
+	// Already setup.
+	if(device->stream){
+		return -1;
+	}
 	VideoStreamAVFoundation * stream = [VideoStreamAVFoundation alloc];
 	stream->_parent = device;
 	BOOL res = [stream setupWithID: device->deviceId rate:device->framerate width:device->width height:device->height];
@@ -269,8 +273,6 @@ int sr_webcam_open(sr_webcam_device * device){
 	device->height = stream->_height;
 	device->deviceId = stream->_id;
 	device->framerate = stream->_framerate;
-	
-	//printf("Device set: %dx%d, %d, %d fps\n", device->width, device->height, device->deviceId, device->framerate);
 	return 0;
 }
 
