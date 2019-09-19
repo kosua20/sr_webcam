@@ -261,6 +261,7 @@ int sr_webcam_open(sr_webcam_device * device){
 	stream->_parent = device;
 	BOOL res = [stream setupWithID: device->deviceId rate:device->framerate width:device->width height:device->height];
 	if(res == NO){
+		device->stream = NULL;
 		return -1;
 	}
 	device->stream = stream;
@@ -268,22 +269,25 @@ int sr_webcam_open(sr_webcam_device * device){
 	device->height = stream->_height;
 	device->deviceId = stream->_id;
 	device->framerate = stream->_framerate;
+	
 	//printf("Device set: %dx%d, %d, %d fps\n", device->width, device->height, device->deviceId, device->framerate);
 	return 0;
 }
 
 
 void sr_webcam_start(sr_webcam_device * device){
-	if(device->stream){
+	if(device->stream && device->running == 0){
 		VideoStreamAVFoundation * stream = (VideoStreamAVFoundation*)(device->stream);
 		[stream start];
+		device->running = 1;
 	}
 }
 
 void sr_webcam_stop(sr_webcam_device * device){
-	if(device->stream){
+	if(device->stream && device->running == 1){
 		VideoStreamAVFoundation * stream = (VideoStreamAVFoundation*)(device->stream);
 		[stream stop];
+		device->running = 0;
 	}
 }
 
