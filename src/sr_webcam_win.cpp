@@ -146,7 +146,8 @@ public:
 			BYTE* ptr = NULL;
 			LONG pitch = 0;
 			DWORD maxSize = 0, curSize = 0;
-			IMF2DBuffer * buffer2d = NULL;
+			int exactRowSize = captureFormat.width * 3;
+			IMF2DBuffer * buffer2d;
 			
 			// Generate data buffer from sample.
 			if(!SUCCEEDED(pSample->ConvertToContiguousBuffer(&buffer))){
@@ -165,22 +166,41 @@ public:
 			if(res1 && SUCCEEDED(buffer2d->Lock2D(&ptr, &pitch))){
 				is2DLocked = true;
 			}
+
 			if(pitch == 0){
-				pitch = captureFormat.width * 3;
+				pitch = exactRowSize;
 			}
 			// If the 2D lock failed, try a regular one.
 			if(!is2DLocked){
 				if(!SUCCEEDED(buffer->Lock(&ptr, &maxSize, &curSize))){
+					if (buffer) {
+						buffer->Release();
+					}
+					if (buffer2d) {
+						buffer2d->Release();
+					}
 					return S_OK;
 				}
 			}
 			// Maybe it still failed, skip.
 			if(!ptr){
+				if(buffer){
+					buffer->Release();
+				}
+				if(buffer2d){
+					buffer2d->Release();
+				}
 				return S_OK;
 			}
 			// If the size of the buffer is not correct, skip.
 			if(!is2DLocked && ((unsigned int)curSize != captureFormat.sampleSize)){
 				buffer->Unlock();
+				if(buffer){
+					buffer->Release();
+				}
+				if(buffer2d){
+					buffer2d->Release();
+				}
 				return S_OK;
 			}
 			// Convert from BGR (with stride) to compact RGB.
@@ -200,6 +220,12 @@ public:
 				buffer2d->Unlock2D();
 			} else {
 				buffer->Unlock();
+			}
+			if(buffer){
+				buffer->Release();
+			}
+			if(buffer2d){
+				buffer2d->Release();
 			}
 			free(dstBuffer);
 		}
