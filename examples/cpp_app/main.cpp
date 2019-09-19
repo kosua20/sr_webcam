@@ -89,7 +89,7 @@ int main(int, char**){
 	int vidW = webcam.w();
 	int vidH = webcam.h();
 	
-	std::vector<unsigned char> buffer(vidW*vidH*3, 255);
+	std::vector<unsigned char> buffer(vidW*vidH*3);
 	
 	// Setup texture.
 	const GLuint texId = setupTexture(vidW, vidH);

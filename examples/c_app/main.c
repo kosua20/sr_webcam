@@ -1,52 +1,64 @@
 #include "common.h"
 
-#include <stdio.h>
-#include <stdlib.h>
 #include <sr_webcam.h>
 
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+unsigned char * buffer = NULL;
+int hasFrame = 0;
+
+void callback(sr_webcam_device * device, void * data){
+	memcpy(buffer, data, sr_webcam_get_format_size(device));
+	hasFrame = 1;
+}
+
 int main(int argc, char** argv){
-
 	// Video parameters.
-	const int vidW = 320; 
-	const int vidH = 240;
+	const int w = 320;
+	const int h = 240;
 	const int fps = 30;
-
+	// Create window.
+	GLFWwindow * window = createWindow(2 * w, 2 * h);
+	int winW, winH;
+	// Open device.
 	sr_webcam_device * device;
 	sr_webcam_create(&device, 0);
-
-	GLFWwindow * window = createWindow(2*vidW, 2*vidH);
-	int winW, winH;
-
+	sr_webcam_set_format(device, w, h, fps);
+	sr_webcam_set_callback(device, callback);
+	sr_webcam_open(device);
+	// Get back video parameters.
+	int vidW, vidH, vidFps;
+	sr_webcam_get_dimensions(device, &vidW, &vidH);
+	sr_webcam_get_framerate(device, &vidFps);
+	// Allocate the buffer and texture.
+	int vidSize = sr_webcam_get_format_size(device);
+	buffer = (unsigned char *)calloc(vidSize, sizeof(unsigned char));
 	const GLuint texId = setupTexture(vidW, vidH);
-
-	// Dummy data for now.
-	unsigned char * data = (unsigned char *)malloc(vidW * vidH * 4);
-	for(int y = 0; y < vidH; ++y) {
-		for (int x = 0; x < vidW; ++x) {
-			const int bid = 4*(y * vidW + x);
-			data[bid + 0] = ((y / 20) % 2 == 1) ? 128 : 255;
-			data[bid + 1] = ((x/20)%2 == 1) ? 128 : 0;
-			data[bid + 2] = 0;
-			data[bid + 3] = 255;
-		}
-	}
-	
+	// Start.
+	sr_webcam_start(device);
 	while(!glfwWindowShouldClose(window)){
-
 		glfwPollEvents();
 		glfwGetFramebufferSize(window, &winW, &winH);
 		glClearColor(0.0f, 1.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT);
 		
-		glBindTexture(GL_TEXTURE_2D, texId);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, vidW, vidH, 0, GL_BGRA, GL_UNSIGNED_BYTE, data);
-		glBindTexture(GL_TEXTURE_2D, 0);
-
-		blit(texId, vidW, vidH,winW, winH, 0);
+		// Upload texture data.
+		if(hasFrame > 0){
+			glBindTexture(GL_TEXTURE_2D, texId);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB8, vidW, vidH, 0, GL_RGB, GL_UNSIGNED_BYTE, buffer);
+			glBindTexture(GL_TEXTURE_2D, 0);
+			hasFrame = 0;
+		}
+	
+		blit(texId, vidW, vidH,winW, winH, 1);
 
 		glfwSwapBuffers(window);
 	}
-
+	sr_webcam_stop(device);
+	sr_webcam_delete(device);
+	free(buffer);
 	glfwDestroyWindow(window);
 	glfwTerminate();
 	return 0;
