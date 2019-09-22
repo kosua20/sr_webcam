@@ -10,6 +10,7 @@
 #include <sys/ioctl.h>
 #include <asm/types.h>
 #include <linux/videodev2.h>
+#include <pthread.h>
 
 typedef struct {
 	void * start;
@@ -25,6 +26,7 @@ typedef struct {
 	int _framerate;
 	Buffer * buffers;
 	int buffersCount;
+	pthread_t thread;
 } V4LInfos;
 
 int wait_ioctl(int fid, int request, void * arg){
@@ -33,6 +35,44 @@ int wait_ioctl(int fid, int request, void * arg){
 		r = ioctl(fd, request, arg);
 	} while(r == -1 && EINTR == errno);
 	return r;
+}
+
+void callback_loop(void * arg){
+	V4LInfos * stream = (V4LInfos*)arg;
+	
+	// \todo Make sure that this is blocking to avoid overload.
+	while(1){
+		fd_set fds;
+		FD_ZERO(&fds);
+		FD_SET(stream->fid, &fds);
+		
+		struct timeval tv;
+		tv.tv_sec = 2;
+		tv.tv_usec = 0;
+		
+		int res = select(fid + 1, &fds, NULL, NULL, &tv);
+		if(res == -1 || res == 0){
+			return;
+		}
+		
+		struct v4l2_buffer buf;
+		memset(&buf, 0, sizeof(buf));
+		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+		buf.memory = V4L2_MEMORY_MMAP;
+		
+		if(wait_ioctl(stream->fid, VIDIOC_DQBUF, &buf) == -1){
+			if(errno != EIO){
+				return;
+			}
+		}
+		
+		unsigned int fullSize = stream->width * stream->hieght * 4;
+		unsigned char * data = (*unsigned char)(malloc(fullSize));
+		memcpy(data, stream->buffers[buf.index].start, fullSize);
+		// \todo Conversion to contiguous RGB.
+		stream->_parent->callback(stream->_parent, data);
+		wait_ioctl(stream->fid, VIDIOC_QBUF, &buf);
+	}
 }
 
 int sr_webcam_open(sr_webcam_device * device){
@@ -190,6 +230,7 @@ void sr_webcam_start(sr_webcam_device * device){
 		if(wait_ioctl(stream->fid, VIDIOC_STREAMON, &type) == -1){
 			return;
 		}
+		pthread_create(&stream->thread, NULL, &callback_loop, device->stream);
 		device->running = 1;
 	}
 }
@@ -201,6 +242,7 @@ void sr_webcam_stop(sr_webcam_device * device){
 		if(wait_ioctl(stream->fid, VIDIOC_STREAMOFF, &type) == -1){
 			return;
 		}
+		pthread_cancel(stream->thread);
 		device->running = 0;
 	}
 }
