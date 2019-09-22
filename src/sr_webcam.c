@@ -16,13 +16,6 @@ int sr_webcam_create(sr_webcam_device ** device, int deviceId){
 	return 0;
 }
 
-void sr_webcam_delete(sr_webcam_device * device){
-	if(device->running == 1){
-		sr_webcam_stop(device);
-	}
-	free(device);
-}
-
 void sr_webcam_set_format(sr_webcam_device * device, int width, int height, int framerate){
 	device->width = width;
 	device->height = height;
