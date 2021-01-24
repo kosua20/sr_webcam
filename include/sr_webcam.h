@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SR_WEBCAM_H
+#define SR_WEBCAM_H
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,3 +38,4 @@ extern "C" {
 }
 #endif
 
+#endif

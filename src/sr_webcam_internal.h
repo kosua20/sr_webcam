@@ -1,4 +1,5 @@
-#pragma once
+#ifndef SR_WEBCAM_INTERNAL_H
+#define SR_WEBCAM_INTERNAL_H
 
 #include "sr_webcam.h"
 
@@ -20,4 +21,6 @@ extern "C" {
 
 #ifdef __cplusplus
 }
+#endif
+
 #endif
