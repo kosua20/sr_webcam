@@ -15,6 +15,9 @@ void callback(sr_webcam_device * device, void * data){
 }
 
 int main(int argc, char** argv){
+	(void)argc;
+	(void)argv;
+
 	// Video parameters.
 	const int w = 320;
 	const int h = 240;

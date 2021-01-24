@@ -67,13 +67,3 @@ newaction {
       print("Done.")
    end
 }
-
-newaction {
-   trigger     = "docs",
-   description = "Build the documentation using Doxygen",
-   execute     = function ()
-      print("Generating documentation...")
-      os.execute("doxygen"..ext.." docs/Doxyfile")
-      print("Done.")
-   end
-}
