@@ -1,3 +1,5 @@
+#include "sr_webcam_internal.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -11,6 +13,7 @@
 #include <asm/types.h>
 #include <linux/videodev2.h>
 #include <pthread.h>
+#include <math.h>
 
 typedef struct {
 	void * start;
@@ -19,11 +22,11 @@ typedef struct {
 
 typedef struct {
 	int fid;
-	sr_webcam_device * _parent;
-	int _width;
-	int _height;
-	int _id;
-	int _framerate;
+	sr_webcam_device * parent;
+	int width;
+	int height;
+	int id;
+	int framerate;
 	Buffer * buffers;
 	int buffersCount;
 	pthread_t thread;
@@ -32,12 +35,12 @@ typedef struct {
 int wait_ioctl(int fid, int request, void * arg){
 	int r;
 	do {
-		r = ioctl(fd, request, arg);
+		r = ioctl(fid, request, arg);
 	} while(r == -1 && EINTR == errno);
 	return r;
 }
 
-void callback_loop(void * arg){
+void * callback_loop(void * arg){
 	V4LInfos * stream = (V4LInfos*)arg;
 	
 	// \todo Make sure that this is blocking to avoid overload.
@@ -50,9 +53,9 @@ void callback_loop(void * arg){
 		tv.tv_sec = 2;
 		tv.tv_usec = 0;
 		
-		int res = select(fid + 1, &fds, NULL, NULL, &tv);
+		int res = select(stream->fid + 1, &fds, NULL, NULL, &tv);
 		if(res == -1 || res == 0){
-			return;
+			return NULL;
 		}
 		
 		struct v4l2_buffer buf;
@@ -62,17 +65,25 @@ void callback_loop(void * arg){
 		
 		if(wait_ioctl(stream->fid, VIDIOC_DQBUF, &buf) == -1){
 			if(errno != EIO){
-				return;
+				return NULL;
 			}
 		}
 		
-		unsigned int fullSize = stream->width * stream->hieght * 4;
-		unsigned char * data = (*unsigned char)(malloc(fullSize));
-		memcpy(data, stream->buffers[buf.index].start, fullSize);
-		// \todo Conversion to contiguous RGB.
-		stream->_parent->callback(stream->_parent, data);
+		unsigned int dstSize = stream->width * stream->height * 3;
+		unsigned char * data = (unsigned char *) malloc(dstSize);
+		const char * srcData = (const char *)(stream->buffers[buf.index].start);
+		for(int y = 0; y < stream->height; ++y){
+			for(int x = 0; x < stream->width; ++x){
+				const int baseShift = (y * stream->width + x);
+				data[3 * baseShift + 0] = srcData[4 * baseShift + 0];
+				data[3 * baseShift + 1] = srcData[4 * baseShift + 1];
+				data[3 * baseShift + 2] = srcData[4 * baseShift + 2];
+			}
+		}
+		stream->parent->callback(stream->parent, data);
 		wait_ioctl(stream->fid, VIDIOC_QBUF, &buf);
 	}
+	return NULL;
 }
 
 int sr_webcam_open(sr_webcam_device * device){
@@ -86,8 +97,8 @@ int sr_webcam_open(sr_webcam_device * device){
 	
 	V4LInfos * stream = (V4LInfos*)malloc(sizeof(V4LInfos));
 	memset(stream, 0, sizeof(V4LInfos));
-	stream->_parent = device;
-	stream->_fid = -1;
+	stream->parent = device;
+	stream->fid = -1;
 	// Try to open the corresponding handle.
 	for(int i = device->deviceId; i >= 0; --i){
 		char file[256];
@@ -95,7 +106,7 @@ int sr_webcam_open(sr_webcam_device * device){
 		int fid = open(file, O_RDONLY);
 		if(fid >= 0){
 			// We found a valid file.
-			stream->_id = i;
+			stream->id = i;
 			close(fid);
 			// Open the file for real.
 			stream->fid = open(file, O_RDWR | O_NONBLOCK, 0);
@@ -141,11 +152,11 @@ int sr_webcam_open(sr_webcam_device * device){
 		free(stream);
 		return -1;
 	}
-	fmt.fmt.pix.bytesperline = max(fmt.fmt.pix.bytesperline, fmt.fmt.pix.width * 2);
-	fmt.fmt.pix.sizeimage = max(fmt.fmt.pix.sizeimage, fmt.fmt.pix.bytesperline * fmt.fmt.pix.height);
+	fmt.fmt.pix.bytesperline = fmax(fmt.fmt.pix.bytesperline, fmt.fmt.pix.width * 2);
+	fmt.fmt.pix.sizeimage = fmax(fmt.fmt.pix.sizeimage, fmt.fmt.pix.bytesperline * fmt.fmt.pix.height);
 	// Update the size based on the format constraints.
-	stream->_width = fmt.fmt.pix.width;
-	stream->_height = fmt.fmt.pix.height;
+	stream->width = fmt.fmt.pix.width;
+	stream->height = fmt.fmt.pix.height;
 	
 	// Allocate buffers for video frames.
 	struct v4l2_requestbuffers req;
@@ -165,7 +176,7 @@ int sr_webcam_open(sr_webcam_device * device){
 	}
 	stream->buffersCount = req.count;
 	// Allocate the buffers.
-	for(int bid = 0; bid < req.count; ++bid){
+	for(int bid = 0; bid < (int)(req.count); ++bid){
 		struct v4l2_buffer buf;
 		memset(&buf, 0, sizeof(buf));
 		buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
@@ -180,7 +191,7 @@ int sr_webcam_open(sr_webcam_device * device){
 			return -2;
 		}
 		buffers[bid].length = buf.length;
-		buffers[bid].start = v4l2_mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fid, buf.m.offset);
+		buffers[bid].start = mmap(NULL, buf.length, PROT_READ | PROT_WRITE, MAP_SHARED, fid, buf.m.offset);
 		if(buffers[bid].start == MAP_FAILED){
 			for(int obid = 0; obid < bid; ++obid){
 				munmap(buffers[obid].start, buffers[obid].length);
@@ -197,17 +208,17 @@ int sr_webcam_open(sr_webcam_device * device){
 	memset(&fpsParams, 0, sizeof(fpsParams));
 	fpsParams.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
 	fpsParams.parm.capture.timeperframe.numerator = 1;
-	fpsParams.parm.capture.timeperframe.denominator = uint32_t(device->framerate);
+	fpsParams.parm.capture.timeperframe.denominator = (unsigned int)(device->framerate);
 	wait_ioctl(fid, VIDIOC_S_PARM, &fpsParams);
 	wait_ioctl(fid, VIDIOC_G_PARM, &fpsParams);
-	stream->_framerate = (int)fpsParams.parm.capture.timeperframe.denominator;
+	stream->framerate = (int)fpsParams.parm.capture.timeperframe.denominator;
 	
 	// Update the device infos.
 	device->stream = stream;
-	device->width = stream->_width;
-	device->height = stream->_height;
-	device->deviceId = stream->_id;
-	device->framerate = stream->_framerate;
+	device->width = stream->width;
+	device->height = stream->height;
+	device->deviceId = stream->id;
+	device->framerate = stream->framerate;
 	return 0;
 }
 
@@ -254,9 +265,9 @@ void sr_webcam_delete(sr_webcam_device * device){
 	if(device->stream){
 		// Unmap and delete all buffers.
 		V4LInfos * stream = (V4LInfos*)(device->stream);
-		Buffers * buffers = stream->buffers;
+		Buffer * buffers = stream->buffers;
 		for(int bid = 0; bid < stream->buffersCount; ++bid){
-			v4l2_munmap(buffers[bid].start, buffers[bid].length);
+			munmap(buffers[bid].start, buffers[bid].length);
 		}
 		free(buffers);
 		close(stream->fid);
