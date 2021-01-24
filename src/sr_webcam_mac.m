@@ -50,7 +50,15 @@
 
 -(BOOL)setupWithID:(int) deviceID rate:(int)framerate width:(int)w height:(int)h {
 	// List available devices
-	NSArray * devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+	NSArray * devices;
+	if(@available(macOS 10.15, *)){
+		NSArray * deviceTypes = @[ AVCaptureDeviceTypeBuiltInWideAngleCamera ];
+		AVCaptureDeviceDiscoverySession * discovSession = [AVCaptureDeviceDiscoverySession discoverySessionWithDeviceTypes:deviceTypes mediaType:AVMediaTypeVideo position:AVCaptureDevicePositionUnspecified];
+		devices = [discovSession devices];
+	} else {
+		devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+	}
+
 	if([devices count] == 0 || deviceID < 0) {
 		return NO;
 	}
