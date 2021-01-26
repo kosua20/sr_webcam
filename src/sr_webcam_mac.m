@@ -146,7 +146,7 @@
 							   nil];
 	[_captureDataOut setVideoSettings:settings];
 	
-	_captureSession = [[[AVCaptureSession alloc] init] autorelease];
+	_captureSession = [[AVCaptureSession alloc] init];
 	[_captureSession beginConfiguration];
 	[_captureSession addInput:_captureDataIn];
 	[_captureSession addOutput:_captureDataOut];
@@ -244,6 +244,7 @@
 - (void)dealloc {
 	if(_captureSession) {
 		[self stop];
+		[_captureSession release];
 		_captureSession = nil;
 	}
 	if(_captureDataOut){
@@ -256,8 +257,15 @@
 	if(_parent){
 		_parent = NULL;
 	}
-	_captureDataIn = nil;
-	_captureDevice = nil;
+	if(_captureDataIn){
+		[_captureDataIn release];
+		_captureDataIn = nil;
+	}
+
+	if(_captureDevice){
+		[_captureDevice release];
+		_captureDevice = nil;
+	}
 	[super dealloc];
 }
 
@@ -269,7 +277,7 @@ int sr_webcam_open(sr_webcam_device * device){
 	if(device->stream){
 		return -1;
 	}
-	VideoStreamAVFoundation * stream = [VideoStreamAVFoundation alloc];
+	VideoStreamAVFoundation * stream = [[VideoStreamAVFoundation alloc] init];
 	stream->_parent = device;
 	BOOL res = [stream setupWithID: device->deviceId rate:device->framerate width:device->width height:device->height];
 	if(res == NO){
@@ -304,6 +312,10 @@ void sr_webcam_stop(sr_webcam_device * device){
 void sr_webcam_delete(sr_webcam_device * device){
 	if(device->running == 1){
 		sr_webcam_stop(device);
+	}
+	if(device->stream){
+		VideoStreamAVFoundation * stream = (VideoStreamAVFoundation*)(device->stream);
+		[stream release];
 	}
 	free(device);
 }
