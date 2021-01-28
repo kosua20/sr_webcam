@@ -2,25 +2,14 @@
 
 #ifdef __cplusplus
 
+
 #include <windows.h>
-#include <guiddef.h>
-#include <mfidl.h>
 #include <mfapi.h>
+
 #include <mfplay.h>
-#include <mfobjects.h>
-#include <tchar.h>
-#include <strsafe.h>
 #include <mfreadwrite.h>
-#include <new>
-#include <map>
-#include <vector>
-#include <string>
-#include <algorithm>
-#include <stdio.h>
-#include <stdarg.h>
-#include <string.h>
 #include <mferror.h>
-#include <comdef.h>
+#include <cmath>
 #include <shlwapi.h>
 
 struct IMFMediaType;
@@ -204,15 +193,18 @@ public:
 				return S_OK;
 			}
 			// Convert from BGR (with stride) to compact RGB.
-			unsigned char *dstBuffer = (unsigned char *)malloc(captureFormat.width * captureFormat.height * 3);
-			// Copy each pixel and switch components, taking the pitch into account.
-			for(unsigned int y = 0; y < captureFormat.height; ++y){
-				for(unsigned int x = 0; x < captureFormat.width; ++x){
-					dstBuffer[y * exactRowSize + 3 * x + 0] = ptr[y * pitch + 3 * x + 2];
-					dstBuffer[y * exactRowSize + 3 * x + 1] = ptr[y * pitch + 3 * x + 1];
-					dstBuffer[y * exactRowSize + 3 * x + 2] = ptr[y * pitch + 3 * x + 0];
+			unsigned char *dstBuffer = (unsigned char *)malloc((int)captureFormat.width * (int)captureFormat.height * 3);
+			if( dstBuffer != nullptr ) {
+				// Copy each pixel and switch components, taking the pitch into account.
+				for( unsigned int y = 0; y < captureFormat.height; ++y ) {
+					for( unsigned int x = 0; x < captureFormat.width; ++x ) {
+						dstBuffer[y * exactRowSize + 3 * x + 0] = ptr[y * pitch + 3 * x + 2];
+						dstBuffer[y * exactRowSize + 3 * x + 1] = ptr[y * pitch + 3 * x + 1];
+						dstBuffer[y * exactRowSize + 3 * x + 2] = ptr[y * pitch + 3 * x + 0];
+					}
 				}
 			}
+			
 			// Transmit data to user.
 			_parent->callback(_parent, dstBuffer);
 			// Release and clean.
