@@ -2,7 +2,6 @@
 
 #ifdef __cplusplus
 
-
 #include <windows.h>
 #include <mfapi.h>
 
@@ -20,32 +19,32 @@ struct IMFAttributes;
 namespace {
 	
 	// Context
-	class MFContext {
+	class SRWebcamMFContext {
 	public:
-		static MFContext& getContext(){
-			static MFContext instance;
+		static SRWebcamMFContext& getContext(){
+			static SRWebcamMFContext instance;
 			return instance;
 		}
 		
-		~MFContext(void) {
+		~SRWebcamMFContext(void) {
 			CoUninitialize();
 		}
 		
 	private:
-		MFContext(void) {
+		SRWebcamMFContext(void) {
 			CoInitialize(0);
 			SUCCEEDED(MFStartup(MF_VERSION));
 		}
 	};
 }
 
-struct Format {
+struct SRWebcamFormat {
 	
-	Format(){
+	SRWebcamFormat(){
 		memset(&type, 0, sizeof(GUID));
 	}
 	
-	Format(IMFMediaType *pType){
+	SRWebcamFormat(IMFMediaType *pType){
 		memset(&type, 0, sizeof(GUID));
 		
 		// Extract the properties we need.
@@ -88,18 +87,18 @@ struct Format {
 	
 };
 
-class VideoStreamMediaFoundation : public IMFSourceReaderCallback {
+class SRWebcamVideoStreamMF : public IMFSourceReaderCallback {
 public:
 	
-	VideoStreamMediaFoundation() : context(MFContext::getContext()){}
+	SRWebcamVideoStreamMF() : context(SRWebcamMFContext::getContext()){}
 	
-	virtual ~VideoStreamMediaFoundation(){}
+	virtual ~SRWebcamVideoStreamMF(){}
 
 	STDMETHODIMP QueryInterface(REFIID riid, _COM_Outptr_ void __RPC_FAR *__RPC_FAR *ppvObject) override {
 		#pragma warning(push)
 		#pragma warning(disable:4838)
 		static const QITAB qit[] = {
-			QITABENT(VideoStreamMediaFoundation, IMFSourceReaderCallback), { 0 }, };
+			QITABENT(SRWebcamVideoStreamMF, IMFSourceReaderCallback), { 0 }, };
 		#pragma warning(pop)
 		return QISearch(this, qit, riid, ppvObject);
 	};
@@ -297,7 +296,7 @@ public:
 		// Iterate over streams and media types to find the best fit.
 		HRESULT hr = S_OK;
 		int bestStream = -1;
-		Format bestFormat;
+		SRWebcamFormat bestFormat;
 		float bestFit = 1e9;
 		DWORD streamId = 0;
 		DWORD typeId = 0;
@@ -316,7 +315,7 @@ public:
 			if(!SUCCEEDED(hr)) {
 				continue;
 			}
-			Format format(pType);
+			SRWebcamFormat format(pType);
 			// We only care about video types.
 			if(format.type != MFMediaType_Video) {
 				++typeId;
@@ -388,7 +387,7 @@ public:
 		}
 		// Store infos for callback.
 		selectedStream = (DWORD)bestStream;
-		captureFormat = Format(typeOut);
+		captureFormat = SRWebcamFormat(typeOut);
 		ppDevices[_id]->Release();
 		CoTaskMemFree(ppDevices);
 		return true;
@@ -410,10 +409,10 @@ public:
 public:
 	sr_webcam_device * _parent = NULL;
 	int _id = -1;
-	Format captureFormat;
+	SRWebcamFormat captureFormat;
 	
 private:
-	MFContext & context;
+	SRWebcamMFContext & context;
 	IMFSourceReader * videoReader;
 	DWORD selectedStream;
 	long refCount = 0;
@@ -424,7 +423,7 @@ int sr_webcam_open(sr_webcam_device * device) {
 	if(device->stream){
 		return -1;
 	}
-	VideoStreamMediaFoundation * stream = new VideoStreamMediaFoundation();
+	SRWebcamVideoStreamMF * stream = new SRWebcamVideoStreamMF();
 	stream->_parent = device;
 	bool res = stream->setupWith(device->deviceId, device->framerate, device->width, device->height);
 	if(!res){
@@ -441,7 +440,7 @@ int sr_webcam_open(sr_webcam_device * device) {
 
 void sr_webcam_start(sr_webcam_device * device) {
 	if(device->stream && device->running == 0){
-		VideoStreamMediaFoundation * stream = (VideoStreamMediaFoundation*)(device->stream);
+		SRWebcamVideoStreamMF * stream = (SRWebcamVideoStreamMF*)(device->stream);
 		stream->start();
 		device->running = 1;
 	}
@@ -449,7 +448,7 @@ void sr_webcam_start(sr_webcam_device * device) {
 
 void sr_webcam_stop(sr_webcam_device * device) {
 	if(device->stream && device->running == 1){
-		VideoStreamMediaFoundation * stream = (VideoStreamMediaFoundation*)(device->stream);
+		SRWebcamVideoStreamMF * stream = (SRWebcamVideoStreamMF*)(device->stream);
 		stream->stop();
 		device->running = 0;
 	}

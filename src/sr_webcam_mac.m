@@ -8,7 +8,7 @@
 #import <CoreMedia/CoreMedia.h>
 #import <CoreVideo/CoreVideo.h>
 
-@interface VideoStreamAVFoundation : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {
+@interface SRWebcamVideoStream : NSObject <AVCaptureVideoDataOutputSampleBufferDelegate> {
 	
 	AVCaptureSession *_captureSession;
 	AVCaptureDevice *_captureDevice;
@@ -30,7 +30,7 @@
 
 @end
 
-@implementation VideoStreamAVFoundation
+@implementation SRWebcamVideoStream
 
 - (id)init {
 	self = [super init];
@@ -277,7 +277,7 @@ int sr_webcam_open(sr_webcam_device * device){
 	if(device->stream){
 		return -1;
 	}
-	VideoStreamAVFoundation * stream = [[VideoStreamAVFoundation alloc] init];
+	SRWebcamVideoStream * stream = [[SRWebcamVideoStream alloc] init];
 	stream->_parent = device;
 	BOOL res = [stream setupWithID: device->deviceId rate:device->framerate width:device->width height:device->height];
 	if(res == NO){
@@ -295,7 +295,7 @@ int sr_webcam_open(sr_webcam_device * device){
 
 void sr_webcam_start(sr_webcam_device * device){
 	if(device->stream && device->running == 0){
-		VideoStreamAVFoundation * stream = (VideoStreamAVFoundation*)(device->stream);
+		SRWebcamVideoStream * stream = (SRWebcamVideoStream*)(device->stream);
 		[stream start];
 		device->running = 1;
 	}
@@ -303,7 +303,7 @@ void sr_webcam_start(sr_webcam_device * device){
 
 void sr_webcam_stop(sr_webcam_device * device){
 	if(device->stream && device->running == 1){
-		VideoStreamAVFoundation * stream = (VideoStreamAVFoundation*)(device->stream);
+		SRWebcamVideoStream * stream = (SRWebcamVideoStream*)(device->stream);
 		[stream stop];
 		device->running = 0;
 	}
@@ -314,7 +314,7 @@ void sr_webcam_delete(sr_webcam_device * device){
 		sr_webcam_stop(device);
 	}
 	if(device->stream){
-		VideoStreamAVFoundation * stream = (VideoStreamAVFoundation*)(device->stream);
+		SRWebcamVideoStream * stream = (SRWebcamVideoStream*)(device->stream);
 		[stream release];
 	}
 	free(device);
