@@ -15,7 +15,9 @@ Common files: `include/sr_webcam.h`, `src/sr_webcam_internal.h`, `src/sr_webcam.
 Each platform implementation can be found in a separate file.
 
 * On Windows, this should link against `mfplat`, `mf`, `mfuuid`, `Mfreadwrite`and `Shlwapi`. Implementation is in `src/sr_webcam_win.cpp` (C++).
-* On macOS, this should link against `AVFoundation.framework`, `CoreMedia.framework` and `Accelerate.framework`. Implementation is in `src/sr_webcam_mac.m` (Objective-C). **You additionally need** to request the capability for your app to access camera devices **by placing** `examples/Info.plist` in the same directory as your binary.
+* On macOS, this should link against `AVFoundation.framework`, `CoreMedia.framework` and `Accelerate.framework`. Implementation is in `src/sr_webcam_mac.m` (Objective-C). **You additionally need** to request the capability for your app to access camera devices by either:
+    - placing `examples/Info.plist` in the same directory as your binary.
+    - embedding it in the binary, in a `__TEXT` section named `__info_plist` (see `examples/premake5.lua` for an example). 
 * On Linux, this should link against `pthread`. Implementation is in `src/sr_webcam_lin.c` (C).
 
 ## Usage

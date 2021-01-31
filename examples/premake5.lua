@@ -21,7 +21,10 @@ function CommonSetup()
 	-- Libraries for each platform.
 	filter("system:macosx")
 		links({"OpenGL.framework", "Cocoa.framework", "IOKit.framework", "CoreVideo.framework", "AppKit.framework", "AVFoundation.framework", "CoreMedia.framework", "Accelerate.framework" })
-
+		-- Embed the Info.plist (which requests camera access rights) in the binary
+		-- Note: This section might be ignored when running with Xcode attached, you'll have to copy the 
+		-- Info.plist in the binary directory while debugging, but it will work when running the binary directly
+		linkoptions({"-sectcreate __TEXT __info_plist ../examples/Info.plist"})
 	filter("system:windows")
 		links({"opengl32", "comctl32", "mfplat", "mf", "mfuuid", "Mfreadwrite", "Shlwapi"})
 
