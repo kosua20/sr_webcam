@@ -7,11 +7,11 @@
 extern "C" {
 #endif
 
-	GLFWwindow * createWindow(int w, int h);
+GLFWwindow* createWindow(int w, int h);
 
-	GLuint setupTexture(int w, int h);
+GLuint setupTexture(int w, int h);
 
-	void blit(GLuint texId, int srcW, int srcH, int dstW, int dstH, int flip);
+void blit(GLuint texId, int srcW, int srcH, int dstW, int dstH, int flip);
 
 #ifdef __cplusplus
 }
